@@ -1,0 +1,1676 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AiRSS · 设计预览 v1.0（像素基准）</title>
+<style>
+/* ============================================================
+   AiRSS 设计系统 v1.0 · 静态预览（浅/深双主题）
+   令牌与 airss/docs/design-system.md §3 一一对应，实现以本文件为像素基准
+   ============================================================ */
+
+/* ---------- 3.1 色彩令牌 · 浅色 ---------- */
+html[data-theme="light"]{
+  --bg-app:#F9F6F1; --bg-panel:#FFFFFF; --bg-elevated:#FFFFFF;
+  --bg-menu:#FFFFFF; --bg-modal:#FFFFFF;
+  --bg-hover:#F1EDE5; --bg-card-hover:#FAF8F3; --bg-active:#ECE7DD;
+  --bg-btn-muted:#F1EFE9; --bg-btn-muted-hover:#E9E5DC;
+  --bg-selected:#FCEFE3;
+  --text-1:#292524; --text-2:#57534E; --text-3:#78716C; --text-disabled:#A8A29E;
+  --accent:#F97316; --accent-hover:#FB8438; --accent-active:#F2650C;
+  --accent-strong:#EA580C; --accent-deep:#C2410C; --accent-ink:#431407;
+  --border:#E8E5DF; --border-strong:#D6D1C8; --border-input:#8F8A80;
+  --focus-ring:#EA580C;
+  --danger:#DC2626; --danger-text:#DC2626; --danger-soft:#FDE8E8;
+  --scrim:rgba(41,37,36,.42);
+  --shadow-1:0 1px 2px rgba(41,37,36,.05);
+  --shadow-2:0 2px 8px rgba(41,37,36,.07);
+  --shadow-3:0 12px 32px rgba(41,37,36,.14),0 2px 8px rgba(41,37,36,.08);
+  --skel-a:#F0EDE6; --skel-b:#F9F6F0;
+  --toast-bg:#292524; --toast-fg:#F9F6F1;
+  --kbd-bg:#EFEBE3;
+  --doc-bg:#ECE8E1; --doc-sub:#78716C;
+}
+/* ---------- 3.2 色彩令牌 · 深色（暖炭独立调校） ---------- */
+html[data-theme="dark"]{
+  --bg-app:#171412; --bg-panel:#201C19; --bg-elevated:#282219;
+  --bg-menu:#282219; --bg-modal:#282219;
+  --bg-hover:#2A241E; --bg-card-hover:#26211C; --bg-active:#322B23;
+  --bg-btn-muted:#2A251F; --bg-btn-muted-hover:#332D25;
+  --bg-selected:#35261A;
+  --text-1:#F2EDE4; --text-2:#B8B0A4; --text-3:#928A7D; --text-disabled:#6B6459;
+  --accent:#FB923C; --accent-hover:#FDBA74; --accent-active:#F08633;
+  --accent-strong:#FB923C; --accent-deep:#FDBA74; --accent-ink:#431407;
+  --border:#332C25; --border-strong:#474036; --border-input:#746C5B;
+  --focus-ring:#FB923C;
+  --danger:#DC2626; --danger-text:#F87171; --danger-soft:#3A211E;
+  --scrim:rgba(10,8,6,.6);
+  --shadow-1:0 1px 2px rgba(0,0,0,.45);
+  --shadow-2:0 2px 10px rgba(0,0,0,.5);
+  --shadow-3:0 12px 32px rgba(0,0,0,.6),0 2px 8px rgba(0,0,0,.45);
+  --skel-a:#2B2620; --skel-b:#352E26;
+  --toast-bg:#F2EDE4; --toast-fg:#292524;
+  --kbd-bg:#2A241E;
+  --doc-bg:#121009; --doc-sub:#928A7D;
+}
+/* ---------- 3.4/3.5 字体与尺寸令牌 ---------- */
+:root{
+  --font-ui:-apple-system,"Segoe UI","Microsoft YaHei UI","PingFang SC","Noto Sans CJK SC","Helvetica Neue",Arial,sans-serif;
+  --font-serif:Georgia,"Times New Roman","Songti SC",SimSun,serif;
+  --font-mono:"Cascadia Code",Consolas,"SF Mono",monospace;
+  --r-lg:12px; --r-md:8px; --r-sm:6px; --r-full:999px;
+  --sbw:280px; --sbw-rail:64px;
+  --ease-out:cubic-bezier(0,0,.2,1);
+  --t-fast:120ms; --t-med:160ms; --t-slow:200ms;
+}
+
+/* ---------- 基础 ---------- */
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;padding:0}
+body{
+  font-family:var(--font-ui); color:var(--text-1); background:var(--doc-bg);
+  -webkit-font-smoothing:antialiased; font-size:14px; line-height:1.5;
+  transition:background var(--t-med) var(--ease-out);
+}
+button{font-family:inherit; font-size:inherit; color:inherit; background:none; border:none; padding:0; cursor:pointer}
+input{font-family:inherit}
+:focus-visible{outline:2px solid var(--focus-ring); outline-offset:2px; border-radius:var(--r-sm)}
+.ic{width:16px;height:16px;flex:none;display:block}
+.ic-12{width:12px;height:12px} .ic-13{width:13px;height:13px} .ic-14{width:14px;height:14px}
+.ic-18{width:18px;height:18px} .ic-20{width:20px;height:20px} .ic-24{width:24px;height:24px}
+.num{font-variant-numeric:tabular-nums}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:var(--r-full)}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ============================================================
+   预览稿文档外壳（非产品 UI）
+   ============================================================ */
+.doc-header{
+  display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:14px 28px;border-bottom:1px solid var(--border);
+  background:var(--bg-panel);
+}
+.doc-title{font-size:15px;font-weight:650;letter-spacing:.01em}
+.doc-title em{font-style:normal;color:var(--accent-deep)}
+.doc-title .ver{font-weight:400;font-size:12px;color:var(--doc-sub);margin-left:8px}
+.doc-main{max-width:1240px;margin:0 auto;padding:28px 28px 64px}
+.doc-section{margin-bottom:44px}
+.doc-section-head{margin:0 0 14px}
+.doc-section-head h2{font-size:15px;font-weight:650;margin:0 0 4px}
+.doc-section-head p{font-size:12.5px;color:var(--doc-sub);margin:0}
+.doc-kbd-row{
+  display:flex;flex-wrap:wrap;gap:14px;align-items:center;
+  padding:10px 14px;margin-top:14px;font-size:12px;color:var(--text-2);
+  border:1px dashed var(--border-strong);border-radius:var(--r-md);
+}
+.doc-kbd-row .k{display:inline-flex;gap:5px;align-items:center}
+.gallery{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(370px,1fr));gap:20px;align-items:start;
+}
+.gallery .span2{grid-column:1/-1}
+.kbd{
+  display:inline-flex;align-items:center;height:18px;padding:0 5px;
+  font-family:var(--font-mono);font-size:10.5px;color:var(--text-2);
+  background:var(--kbd-bg);border:1px solid var(--border-strong);border-radius:var(--r-sm);
+}
+.legend{display:flex;flex-wrap:wrap;gap:10px 24px;padding:14px 0 0;border-top:1px solid var(--border);margin-top:8px}
+.legend .sw{display:inline-flex;align-items:center;gap:8px;flex:none;white-space:nowrap;font-size:11px;color:var(--text-2)}
+.legend .sw i{width:14px;height:14px;flex:none;border-radius:4px;display:block;border:1px solid var(--border-strong)}
+.sw--bg-app{background:var(--bg-app)}
+.sw--bg-panel{background:var(--bg-panel)}
+.sw--accent{background:var(--accent)}
+.sw--accent-strong{background:var(--accent-strong)}
+.sw--accent-deep{background:var(--accent-deep)}
+.sw--selected{background:var(--bg-selected)}
+.sw--text1{background:var(--text-1)}
+.sw--text2{background:var(--text-2)}
+.sw--danger{background:var(--danger)}
+.legend .sw b{font-weight:600;color:var(--text-1)}
+.legend .sw code{font-family:var(--font-mono);font-size:10px;color:var(--doc-sub)}
+.doc-footer{max-width:1240px;margin:0 auto;padding:0 28px 48px}
+
+/* ============================================================
+   通用组件（C1–C15）
+   ============================================================ */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  height:32px;padding:0 12px;border-radius:var(--r-md);
+  font-size:13px;font-weight:500;color:var(--text-2);
+  transition:background var(--t-fast) var(--ease-out),color var(--t-fast) var(--ease-out),box-shadow var(--t-fast) var(--ease-out);
+}
+.btn--sm{height:28px;padding:0 10px;font-size:12px}
+.btn--sm .ic{width:14px;height:14px}
+.btn--primary{background:var(--accent);color:var(--accent-ink);font-weight:600}
+.btn--primary:hover{background:var(--accent-hover)}
+.btn--primary:active{background:var(--accent-active)}
+.btn--secondary{background:var(--bg-panel);color:var(--text-2);box-shadow:inset 0 0 0 1px var(--border-strong)}
+.btn--secondary:hover{background:var(--bg-card-hover);color:var(--text-1)}
+.btn--ghost:hover{background:var(--bg-card-hover);color:var(--text-1)}
+.btn--ghost:active,.btn--secondary:active{background:var(--bg-active)}
+.btn--muted{background:var(--bg-btn-muted);color:var(--text-2)}
+.btn--muted:hover{background:var(--bg-btn-muted-hover);color:var(--text-1)}
+.btn--danger{background:var(--danger);color:#FFFFFF;font-weight:600}
+.btn--danger:hover{filter:brightness(1.08)}
+.btn--danger-o{color:var(--danger-text);box-shadow:inset 0 0 0 1px var(--danger)}
+.btn--danger-o:hover{background:var(--danger-soft)}
+.btn[aria-disabled="true"],.btn.is-disabled{opacity:.45;cursor:not-allowed}
+.btn.is-on{background:var(--bg-selected);color:var(--accent-deep)}
+.icon-btn{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:28px;height:28px;border-radius:var(--r-md);color:var(--text-2);flex:none;
+  transition:background var(--t-fast) var(--ease-out),color var(--t-fast) var(--ease-out);
+}
+.icon-btn:hover{background:var(--bg-card-hover);color:var(--text-1)}
+.icon-btn:active{background:var(--bg-active)}
+.icon-btn--32{width:32px;height:32px}
+.icon-btn--accent{background:var(--accent);color:var(--accent-ink)}
+.icon-btn--accent:hover{background:var(--accent-hover);color:var(--accent-ink)}
+.icon-btn--accent:active{background:var(--accent-active)}
+.badge{
+  display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:var(--r-full);
+  font-size:11px;font-weight:600;letter-spacing:.02em;background:var(--accent);color:var(--accent-ink);
+}
+.badge--neutral{background:var(--bg-hover);color:var(--text-2)}
+.badge--soft{background:var(--bg-selected);color:var(--accent-deep)}
+.tag{font-size:11px;font-weight:600;letter-spacing:.02em;color:var(--text-3)}
+
+/* 输入框 */
+.field{position:relative;display:flex;align-items:center}
+.field input{
+  width:100%;height:36px;padding:0 12px;border-radius:var(--r-md);
+  border:1px solid var(--border-strong);background:var(--bg-panel);color:var(--text-1);
+  font-size:13px;transition:box-shadow var(--t-fast) var(--ease-out),border-color var(--t-fast) var(--ease-out);
+}
+.field input::placeholder{color:var(--text-3)}
+.field input:focus{outline:none;border-color:transparent;box-shadow:0 0 0 2px var(--focus-ring)}
+.field--search input{padding-left:34px}
+.field--search .ic{position:absolute;left:10px;color:var(--text-3)}
+.field .kbd{position:absolute;right:8px}
+.field--sm input{height:32px}
+
+/* 下拉 */
+.dd{position:relative}
+.dd-btn{
+  display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 10px;
+  border-radius:var(--r-md);box-shadow:inset 0 0 0 1px var(--border-strong);
+  font-size:13px;color:var(--text-2);
+  transition:background var(--t-fast) var(--ease-out),box-shadow var(--t-fast) var(--ease-out);
+}
+.dd-btn:hover{background:var(--bg-card-hover);color:var(--text-1)}
+.dd.is-open .dd-btn{box-shadow:inset 0 0 0 1px var(--accent-strong)}
+.dd-menu{
+  position:absolute;top:calc(100% + 6px);right:0;min-width:150px;z-index:400;
+  background:var(--bg-menu);border:1px solid var(--border-strong);border-radius:var(--r-md);
+  box-shadow:var(--shadow-2);padding:4px;
+}
+.dd-item{
+  display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;border-radius:var(--r-sm);
+  font-size:13px;color:var(--text-1);white-space:nowrap;
+}
+.dd-item:hover{background:var(--bg-hover)}
+.dd-item .ic{margin-left:auto;color:var(--accent-deep);visibility:hidden}
+.dd-item.is-on{color:var(--accent-deep);font-weight:600}
+.dd-item.is-on .ic{visibility:visible}
+
+/* 开关 */
+.sw{width:36px;height:20px;border-radius:var(--r-full);background:var(--bg-active);position:relative;flex:none;transition:background var(--t-med) var(--ease-out)}
+.sw::after{
+  content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;
+  background:#FFFFFF;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:left var(--t-med) var(--ease-out);
+}
+.sw.is-on{background:var(--accent-strong)}
+.sw.is-on::after{left:18px}
+
+/* 分段控件 */
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:var(--r-md);overflow:hidden;background:var(--bg-panel)}
+.seg button{
+  display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;
+  font-size:12.5px;color:var(--text-2);
+  transition:background var(--t-fast) var(--ease-out),color var(--t-fast) var(--ease-out);
+}
+.seg button:hover{background:var(--bg-hover)}
+.seg button.is-on{background:var(--bg-selected);color:var(--accent-deep);font-weight:600}
+
+/* 单选行 */
+.radio{width:20px;height:20px;border-radius:50%;border:1.5px solid var(--border-input);display:inline-flex;align-items:center;justify-content:center;flex:none}
+.radio::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent-strong);opacity:0;transform:scale(.5);transition:all var(--t-med) var(--ease-out)}
+.radio.is-on{border-color:var(--accent-strong)}
+.radio.is-on::after{opacity:1;transform:scale(1)}
+
+/* 弹层 */
+.scrim{position:absolute;inset:0;background:var(--scrim);z-index:500}
+.modal{
+  position:relative;z-index:600;width:380px;max-width:calc(100% - 32px);
+  background:var(--bg-modal);border-radius:var(--r-lg);box-shadow:var(--shadow-3);
+  padding:18px 18px 16px;
+}
+html[data-theme="dark"] .modal{border:1px solid var(--border-strong)}
+.modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.modal-head h3{margin:0;font-size:16px;font-weight:650}
+.modal-steps{display:flex;gap:14px;margin-bottom:14px}
+.step{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-3)}
+.step i{
+  width:18px;height:18px;border-radius:50%;border:1.5px solid var(--border-input);
+  display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-style:normal;
+}
+.step.is-current{color:var(--accent-deep);font-weight:600}
+.step.is-current i{border-color:var(--accent-strong);color:var(--accent-deep)}
+.step.is-done i{border-color:var(--accent-strong);background:var(--accent-strong);color:#fff}
+.modal-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.form-label{display:block;font-size:12px;font-weight:600;color:var(--text-2);margin:14px 0 6px}
+.form-label:first-of-type{margin-top:2px}
+
+/* 芯片 */
+.chip{
+  display:inline-flex;align-items:center;height:28px;padding:0 12px;border-radius:var(--r-full);
+  font-size:12.5px;color:var(--text-2);box-shadow:inset 0 0 0 1px var(--border-strong);
+  transition:background var(--t-fast) var(--ease-out),color var(--t-fast) var(--ease-out);
+}
+.chip:hover,.chip.is-on{background:var(--bg-selected);color:var(--accent-deep);box-shadow:inset 0 0 0 1px transparent;font-weight:600}
+
+/* 骨架 */
+.sk{background:var(--skel-a);border-radius:var(--r-sm);position:relative;overflow:hidden}
+.sk::after{
+  content:"";position:absolute;inset:0;transform:translateX(-100%);
+  background:linear-gradient(90deg,transparent,var(--skel-b),transparent);
+  animation:shimmer 1.4s linear infinite;
+}
+@keyframes shimmer{to{transform:translateX(100%)}}
+
+/* toast / tooltip */
+.toast{
+  position:absolute;left:50%;bottom:16px;z-index:700;transform:translate(-50%,8px);opacity:0;
+  display:flex;align-items:center;gap:8px;height:34px;padding:0 14px;border-radius:var(--r-full);
+  background:var(--toast-bg);color:var(--toast-fg);font-size:13px;font-weight:500;
+  box-shadow:var(--shadow-2);pointer-events:none;
+  transition:opacity var(--t-med) var(--ease-out),transform var(--t-med) var(--ease-out);
+}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.tip{
+  position:absolute;left:100%;top:50%;transform:translateY(-50%);margin-left:10px;z-index:800;
+  width:236px;background:var(--bg-elevated);border:1px solid var(--border-strong);border-radius:var(--r-md);
+  box-shadow:var(--shadow-2);padding:10px 12px;font-size:12px;color:var(--text-2);
+}
+.tip b{display:flex;align-items:center;gap:6px;color:var(--text-1);font-size:12.5px;margin-bottom:2px}
+.tip .ic{color:var(--danger-text)}
+.tip small{display:block;color:var(--text-3);margin:4px 0 6px}
+.tip a,.tip .link{color:var(--accent-deep);font-weight:600;text-decoration:none}
+
+/* 横幅占位图（§4.9 编辑风渐变） */
+.banner-dusk{
+  background:
+    radial-gradient(120% 90% at 80% 10%, #FDBA74 0%, rgba(253,186,116,0) 55%),
+    radial-gradient(90% 120% at 15% 90%, #7C2D12 0%, rgba(124,45,18,0) 60%),
+    linear-gradient(118deg,#F97316 0%,#EA580C 45%,#9A3412 100%);
+}
+.banner-sunrise{
+  background:
+    radial-gradient(60% 60% at 50% 115%, #FDBA74 0%, #F97316 38%, rgba(249,115,22,0) 72%),
+    linear-gradient(180deg,#C2410C,#7C2D12);
+}
+.thumb-dusk{background:linear-gradient(120deg,#FDBA74,#F97316 55%,#C2410C)}
+.thumb-sun{background:linear-gradient(180deg,#C2410C,#F97316)}
+
+/* ============================================================
+   应用主框架（uTools 小窗 800×620）
+   ============================================================ */
+.frame-wrap{overflow:auto;padding:4px}
+.app{
+  position:relative;width:800px;height:620px;display:flex;overflow:hidden;
+  background:var(--bg-app);border:1px solid var(--border);border-radius:10px;
+  box-shadow:var(--shadow-2);margin:0 auto;
+}
+
+/* ---------- 侧栏 ---------- */
+.sidebar{
+  position:relative;width:var(--sbw);flex:none;display:flex;flex-direction:column;
+  background:var(--bg-app);border-right:1px solid var(--border);
+  transition:width var(--t-slow) var(--ease-out);
+}
+.sb-scroll{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:16px 16px 8px}
+.brand-row{display:flex;align-items:center;gap:8px}
+.brand-name{margin:0;font-size:20px;font-weight:700;letter-spacing:-.01em;color:var(--text-1)}
+.brand-sub{margin:2px 0 0;font-size:12px;color:var(--text-3)}
+.sb-search{margin-top:14px}
+.stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px}
+.stat{
+  background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--r-md);
+  box-shadow:var(--shadow-1);padding:8px 10px 7px;
+}
+.stat-num{display:block;font-size:20px;font-weight:700;color:var(--accent-deep);line-height:1.15}
+.stat-label{display:block;font-size:11px;color:var(--text-3);margin-top:1px}
+.sb-section{margin-top:16px}
+.sb-section-head{
+  display:flex;align-items:center;justify-content:space-between;
+  font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:6px;
+}
+.feed-list,.cat-list{list-style:none;margin:0;padding:0}
+.feed-item{
+  position:relative;display:flex;align-items:center;gap:8px;width:100%;text-align:left;
+  min-height:44px;padding:6px 8px 6px 10px;border-radius:var(--r-md);
+  transition:background var(--t-fast) var(--ease-out);
+}
+.feed-item:hover{background:var(--bg-hover)}
+.fi-text{flex:1;min-width:0}
+.fi-name{display:block;font-size:13px;font-weight:500;color:var(--text-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fi-sub{display:block;font-size:11px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fi-count{font-size:12px;font-weight:600;color:var(--text-2)}
+.fi-more{
+  position:absolute;right:30px;top:50%;transform:translateY(-50%);
+  width:24px;height:24px;display:none;align-items:center;justify-content:center;
+  border-radius:var(--r-sm);color:var(--text-2);
+  background:var(--bg-panel);box-shadow:inset 0 0 0 1px var(--border-strong);
+}
+.feed-item:hover .fi-more{display:inline-flex}
+.feed-item:hover .fi-more:hover{background:var(--bg-active);color:var(--text-1)}
+.feed-item:hover .fi-count{opacity:0}
+.feed-item.is-selected,.feed-item.is-selected:hover{background:var(--bg-selected)}
+.feed-item.is-selected .fi-name,.feed-item.is-selected .fi-count{color:var(--accent-deep)}
+.feed-item.is-selected .fi-sub{color:var(--accent-deep);opacity:.75}
+.cat-item{
+  display:flex;align-items:center;gap:8px;width:100%;text-align:left;
+  min-height:32px;padding:4px 10px;border-radius:var(--r-md);font-size:13px;font-weight:500;color:var(--text-1);
+  transition:background var(--t-fast) var(--ease-out);
+}
+.cat-item:hover{background:var(--bg-hover)}
+.cat-item .cat-count{margin-left:auto;font-size:12px;font-weight:600;color:var(--text-2)}
+.cat-item.is-selected,.cat-item.is-selected:hover{background:var(--bg-selected);color:var(--accent-deep);font-weight:600}
+.cat-item.is-selected .cat-count{color:var(--accent-deep)}
+.sb-footer{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--border)}
+.sb-footer .btn{flex:1}
+/* 折叠按钮（底部工具行末位） */
+.sb-footer .sb-toggle{flex:0 0 32px;width:32px;padding:0}
+/* 折叠态：图标轨 */
+.app.is-collapsed .sidebar{width:var(--sbw-rail)}
+.app.is-collapsed .sb-full{display:none}
+.app.is-collapsed .sb-footer{flex-direction:column;padding:12px 0;gap:8px;border-top:none}
+.app.is-collapsed .sb-footer .btn{width:32px;height:32px;padding:0;flex:none}
+.app.is-collapsed .sb-footer .btn span{display:none}
+.sb-rail{display:none;flex:1;flex-direction:column;align-items:center;gap:10px;padding:16px 0 12px}
+.app.is-collapsed .sb-rail{display:flex}
+.rail-brand{
+  width:28px;height:28px;border-radius:var(--r-md);background:var(--accent);color:var(--accent-ink);
+  display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;
+}
+.rail-dot{
+  position:relative;width:24px;height:24px;border-radius:var(--r-sm);background:var(--bg-selected);
+  color:var(--accent-deep);font-size:11px;font-weight:600;
+  display:flex;align-items:center;justify-content:center;
+}
+.rail-dot::after{
+  content:attr(data-n);position:absolute;right:-3px;bottom:-3px;min-width:13px;height:13px;padding:0 3px;
+  border-radius:var(--r-full);background:var(--accent-strong);color:#fff;font-size:9px;line-height:13px;text-align:center;
+}
+.rail-dot[data-n="0"]::after{display:none}
+
+/* ---------- 内容区 ---------- */
+.content{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg-panel)}
+.content-progress{position:absolute;top:0;left:0;right:0;height:2px;z-index:100;overflow:hidden;opacity:0;pointer-events:none;transition:opacity var(--t-med)}
+.content-progress::before{
+  content:"";position:absolute;top:0;bottom:0;width:40%;border-radius:var(--r-full);
+  background:linear-gradient(90deg,var(--accent-strong),var(--accent));
+}
+.content.is-refreshing .content-progress{opacity:1}
+.content.is-refreshing .content-progress::before{animation:prog 1.4s var(--ease-out) infinite}
+@keyframes prog{from{left:-40%}to{left:100%}}
+.spin{animation:spin .9s linear infinite}
+.content.is-refreshing #refreshBtn .ic{animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.toolbar{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  height:56px;padding:0 16px;border-bottom:1px solid var(--border);flex:none;
+}
+.tb-left,.tb-right{display:flex;align-items:center;gap:8px}
+.tb-title{margin:0 4px 0 0;font-size:16px;font-weight:650;color:var(--text-1)}
+.view-toggle{display:inline-flex;border:1px solid var(--border-strong);border-radius:var(--r-md);overflow:hidden}
+.vt-btn{
+  width:34px;height:30px;display:inline-flex;align-items:center;justify-content:center;color:var(--text-2);
+  transition:background var(--t-fast) var(--ease-out),color var(--t-fast) var(--ease-out);
+}
+.vt-btn:hover{background:var(--bg-card-hover);color:var(--text-1)}
+.vt-btn.is-active{background:var(--bg-selected);color:var(--accent-deep)}
+.feed-scroll{flex:1;overflow-y:auto;padding:16px}
+
+/* ---------- 卡片视图 ---------- */
+.cards{display:flex;flex-direction:column;gap:14px}
+.card{
+  border:1px solid var(--border);border-radius:var(--r-lg);background:var(--bg-panel);
+  box-shadow:var(--shadow-1);overflow:hidden;cursor:pointer;text-align:left;width:100%;
+  transition:background var(--t-fast) var(--ease-out);
+}
+.card:hover{background:var(--bg-card-hover)}
+.card:focus-visible{outline-offset:-2px}
+.card-banner{height:148px;position:relative;padding:14px 16px;display:flex;flex-direction:column;justify-content:space-between}
+.banner-kicker{font-size:11px;font-weight:600;letter-spacing:.08em;color:#FFF7ED}
+.banner-no{
+  align-self:flex-end;font-family:var(--font-serif);font-size:56px;font-weight:700;line-height:1;color:#FFF7ED;
+}
+.banner-tagline{align-self:flex-end;font-size:13px;font-weight:600;color:#FFF7ED;letter-spacing:.14em}
+.card-body{padding:12px 14px 13px}
+.card-title{
+  display:flex;align-items:baseline;margin:7px 0 0;font-size:16px;line-height:1.4;
+  font-weight:650;color:var(--text-1);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  transition:color var(--t-fast) var(--ease-out),font-weight 0s;
+}
+.card:not(.is-unread) .card-title{font-weight:550;color:#44403C}
+html[data-theme="dark"] .card:not(.is-unread) .card-title{color:#C6BFB3}
+.card-summary{
+  margin:6px 0 0;font-size:14px;line-height:1.6;color:var(--text-2);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.card:not(.is-unread) .card-summary{color:var(--text-3)}
+.dot{
+  display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent-strong);
+  margin-right:8px;flex:none;transition:opacity .18s var(--ease-out),width .18s var(--ease-out),margin .18s var(--ease-out);
+  align-self:center;
+}
+.card:not(.is-unread) .dot{opacity:0;width:0;margin-right:0}
+.card-meta{display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;color:var(--text-3)}
+.card-meta .src{font-weight:600;color:var(--text-2)}
+.card-meta .sep{opacity:.6}
+.card-meta .read-time{display:inline-flex;align-items:center;gap:4px}
+.meta-actions{margin-left:auto;display:flex;gap:2px}
+.act-btn{
+  width:28px;height:24px;border-radius:var(--r-sm);display:inline-flex;align-items:center;justify-content:center;
+  color:var(--text-3);transition:background var(--t-fast),color var(--t-fast);
+}
+.act-btn:hover{background:var(--bg-hover);color:var(--text-1)}
+.act-btn .ic-f{display:none}
+.act-btn.is-on{color:var(--accent-deep)}
+.act-btn.is-on .ic-l{display:none}
+.act-btn.is-on .ic-f{display:block}
+
+/* ---------- 列表视图 ---------- */
+.list{display:flex;flex-direction:column;gap:2px}
+.row{
+  display:flex;align-items:center;gap:10px;min-height:40px;padding:0 12px;border-radius:var(--r-md);
+  cursor:pointer;text-align:left;width:100%;
+  transition:background var(--t-fast) var(--ease-out);
+}
+.row:hover{background:var(--bg-card-hover)}
+.row:focus-visible{outline-offset:-2px}
+.row.is-current{background:var(--bg-selected)}
+.row .dot{width:7px;height:7px}
+.row:not(.is-unread) .dot{opacity:0;width:0;margin-right:0}
+.row-title{
+  flex:1;min-width:0;font-size:13px;color:var(--text-2);font-weight:400;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  transition:color var(--t-fast) var(--ease-out);
+}
+.row.is-unread .row-title{color:var(--text-1);font-weight:600}
+.row.is-current .row-title{color:var(--text-1)}
+.row-src,.row-time{flex:none;font-size:12px;color:var(--text-3)}
+.row-src{max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row-thumb{width:56px;height:40px;border-radius:var(--r-sm);flex:none}
+
+/* ---------- 阅读面板（覆盖内容列） ---------- */
+.reader{
+  position:absolute;inset:0;z-index:300;display:flex;flex-direction:column;background:var(--bg-panel);
+  opacity:0;transform:translateX(16px);
+}
+.reader.in{opacity:1;transform:none;transition:opacity var(--t-slow) var(--ease-out),transform var(--t-slow) var(--ease-out)}
+.reader.out{opacity:0;transform:translateX(16px);transition:opacity var(--t-med) var(--ease-out),transform var(--t-med) var(--ease-out)}
+.reader-top{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;flex:none;
+  min-height:52px;padding:10px 12px;border-bottom:1px solid var(--border);
+}
+.reader-top-actions{display:flex;align-items:center;gap:8px}
+.fs-step{display:inline-flex;align-items:stretch;border:1px solid var(--border-strong);border-radius:var(--r-md);overflow:hidden;height:30px}
+.fs-step button{
+  width:30px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;color:var(--text-2);
+  font-family:var(--font-mono);
+}
+.fs-step button:hover{background:var(--bg-card-hover);color:var(--text-1)}
+.fs-step button[aria-disabled="true"]{opacity:.4;cursor:not-allowed}
+.fs-step .fs-val{width:42px;display:inline-flex;align-items:center;justify-content:center;font-size:11.5px;color:var(--text-3);border-inline:1px solid var(--border);font-family:var(--font-mono)}
+.reader-scroll{flex:1;overflow-y:auto}
+.reader-article{font-size:var(--reading-fs,16px);max-width:75em;margin:0 auto;padding:24px 24px 48px}
+.reader-title{margin:0;font-size:22px;line-height:1.35;font-weight:700;color:var(--text-1);letter-spacing:-.01em}
+.reader-meta{
+  display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:12px;padding-bottom:16px;
+  border-bottom:1px solid var(--border);font-size:12px;color:var(--text-3);
+}
+.reader-meta .src{font-size:13px;font-weight:600;color:var(--accent-deep)}
+.reader-meta .sep{opacity:.6}
+.reader-meta .read-time{display:inline-flex;align-items:center;gap:4px}
+.reader-meta .origin{margin-left:auto;display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 10px;border-radius:var(--r-md);color:var(--text-2);font-size:12px;font-weight:500}
+.reader-meta .origin:hover{background:var(--bg-card-hover);color:var(--text-1)}
+.reader-body{margin-top:20px;font-size:var(--reading-fs,16px);line-height:1.75;color:var(--text-1);transition:font-size var(--t-med) var(--ease-out)}
+.reader-body p{margin:0 0 .75em}
+.reader-body h2{font-size:1.12em;font-weight:650;margin:1.1em 0 .5em}
+.reader-body blockquote{
+  margin:1em 0;padding:2px 0 2px 14px;border-left:3px solid var(--accent-strong);color:var(--text-2);
+}
+.reader-body code{font-family:var(--font-mono);font-size:.88em;background:var(--bg-hover);border-radius:var(--r-sm);padding:2px 6px}
+.reader-article.is-serif .reader-body{font-family:var(--font-serif)}
+.reader-article.is-serif .reader-title{font-family:var(--font-serif)}
+.reader-bar{
+  display:flex;align-items:center;gap:8px;flex:none;min-height:52px;padding:10px 12px;
+  border-top:1px solid var(--border);
+}
+.reader-bar .spacer{flex:1}
+
+/* ============================================================
+   画廊（静态状态稿）
+   ============================================================ */
+.mini{border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;background:var(--bg-panel);box-shadow:var(--shadow-1)}
+.mini-head{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:9px 14px;background:var(--bg-app);border-bottom:1px solid var(--border);
+  font-size:12px;font-weight:600;color:var(--text-2);
+}
+.mini-head .no{font-family:var(--font-mono);font-size:10.5px;color:var(--doc-sub);font-weight:400}
+.mini-body{position:relative}
+.mini-center{display:flex;align-items:center;justify-content:center;min-height:320px;padding:20px;background:var(--bg-panel)}
+.mini-center::before{content:"";position:absolute;inset:0;background:var(--scrim)}
+.mini-center .modal{box-shadow:none}
+/* 设置页滚动容器 */
+.settings-scroll{padding:16px}
+.group{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--bg-panel);box-shadow:var(--shadow-1);padding:4px 14px;margin-bottom:12px}
+.group:last-child{margin-bottom:0}
+.group-title{font-size:12px;font-weight:600;color:var(--text-2);padding:10px 0 2px}
+.set-row{display:flex;align-items:center;gap:12px;min-height:48px;border-top:1px solid var(--border);padding:6px 0}
+.group-title + .set-row{border-top:none}
+.set-row .lab{flex:1;min-width:0}
+.set-row .lab b{display:block;font-size:13px;font-weight:500;color:var(--text-1)}
+.set-row .lab small{display:block;font-size:11.5px;color:var(--text-3);margin-top:1px}
+.set-row .ctl{flex:none;display:flex;align-items:center;gap:8px}
+.ai-note{display:flex;gap:10px;align-items:flex-start;padding:10px 0 12px}
+.ai-note .ic{color:var(--accent-deep);margin-top:2px}
+.ai-note p{margin:0;font-size:12.5px;color:var(--text-2);line-height:1.55}
+/* 空态 */
+.empty{display:flex;flex-direction:column;align-items:center;text-align:center;padding:44px 28px;gap:2px;min-height:320px;justify-content:center}
+.empty-ic{
+  width:72px;height:72px;border-radius:50%;background:var(--bg-selected);
+  display:flex;align-items:center;justify-content:center;color:var(--accent-deep);margin-bottom:14px;position:relative;
+}
+.empty-ic--sm{width:56px;height:56px}
+.empty-ic--flat{background:transparent;color:var(--text-3)}
+.celebrate .empty-ic::before,.celebrate .empty-ic::after{
+  content:"";position:absolute;width:5px;height:5px;border-radius:50%;background:var(--accent-strong);
+}
+.celebrate .empty-ic::before{left:-14px;top:12px}
+.celebrate .empty-ic::after{right:-10px;bottom:8px}
+.celebrate .d3{position:absolute;right:-22px;top:-4px;width:4px;height:4px;border-radius:50%;background:var(--accent-strong)}
+.empty h3{margin:0;font-size:18px;font-weight:650;color:var(--text-1)}
+.empty p{margin:6px 0 0;font-size:13px;color:var(--text-2)}
+.empty .rowline{display:flex;gap:8px;width:100%;max-width:380px;margin-top:18px}
+.empty .rowline .field{flex:1}
+.empty .ghostline{margin-top:10px}
+.empty .divider{margin-top:20px;font-size:12px;color:var(--text-3)}
+.empty .chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:10px}
+.empty .act{margin-top:18px}
+/* 源错误演示 */
+.err-list{list-style:none;margin:0;padding:14px 8px 14px 6px;background:var(--bg-app)}
+.err-list .feed-item{background:var(--bg-panel);border:1px solid var(--border);margin-bottom:6px}
+.err-list .tip{left:auto;right:-8px;top:auto;transform:none;margin:0;position:relative;width:auto;box-shadow:none;border-style:dashed}
+.mini .err-wrap{display:flex;gap:6px;align-items:flex-start;padding:14px}
+.mini .err-wrap > div{flex:1;min-width:0}
+.mini .err-wrap .tip{position:relative;transform:none;margin:8px 0 0;flex:1}
+/* 分离窗口三栏 */
+.scale{width:744px;height:496px;overflow:hidden;position:relative;margin:0 auto;border-bottom:1px solid var(--border)}
+.app--wide{width:1200px;height:800px;transform:scale(.62);transform-origin:0 0;display:flex;background:var(--bg-app);overflow:hidden}
+.app--wide .sidebar{width:280px}
+.app--wide .sb-scroll{overflow:hidden}
+.col-list{width:400px;flex:none;display:flex;flex-direction:column;background:var(--bg-panel);border-right:1px solid var(--border)}
+.col-list .toolbar{height:48px;min-height:48px}
+.col-reader{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg-panel)}
+.col-reader .reader-top{border-bottom:1px solid var(--border)}
+.col-reader .reader-bar{margin-top:auto}
+/* 骨架演示 */
+.skel-demo{padding:16px;display:flex;flex-direction:column;gap:14px}
+.skel-card{border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden}
+.skel-card .sk-banner{height:148px;border-radius:0}
+.skel-card .sk-body{padding:14px}
+.sk-line{height:14px;margin-bottom:10px}
+.sk-line.h60{width:60%} .sk-line.h40{width:40%;margin-bottom:0}
+.sk-line.thin{height:10px}
+.skel-row{display:flex;gap:10px;align-items:center;height:40px}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
+</style>
+</head>
+<body>
+
+<!-- ======================= 内联图标（24 · stroke 2 · currentColor） ======================= -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <g id="i-refresh" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20 11A8 8 0 0 0 5.6 6.6L4 8.5"/><path d="M4 3.5v5h5"/><path d="M4 13a8 8 0 0 0 14.4 4.4l1.6-1.9"/><path d="M20 20.5v-5h-5"/>
+    </g>
+    <g id="i-done" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M2.5 12.5l3.5 3.5L13 9"/><path d="M9 13.5l3.5 3.5L21.5 8"/>
+    </g>
+    <g id="i-list" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M9 6h12M9 12h12M9 18h12M4 6h.01M4 12h.01M4 18h.01"/>
+    </g>
+    <g id="i-grid" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+      <rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/>
+      <rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/>
+    </g>
+    <g id="i-sort" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="m8 9 4-4 4 4"/><path d="m16 15-4 4-4-4"/>
+    </g>
+    <g id="i-search" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <circle cx="11" cy="11" r="6.5"/><path d="m20 20-3.8-3.8"/>
+    </g>
+    <g id="i-plus" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M12 5v14M5 12h14"/>
+    </g>
+    <g id="i-settings" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M21 4h-7M10 4H3"/><path d="M21 12h-9M8 12H3"/><path d="M21 20h-5M12 20H3"/>
+      <path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/>
+    </g>
+    <g id="i-upload" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 15V4"/><path d="m7.5 8.5 4.5-4.5 4.5 4.5"/><path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15"/>
+    </g>
+    <g id="i-download" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15"/>
+    </g>
+    <g id="i-star" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+      <path d="M12 3.6l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.8l5.9-.9z"/>
+    </g>
+    <g id="i-star-f" fill="currentColor" stroke="none">
+      <path d="M12 3.6l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.8l5.9-.9z"/>
+    </g>
+    <g id="i-bookmark" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+      <path d="M6.5 4h11a1 1 0 0 1 1 1v15.2L12 16.4l-6.5 3.8V5a1 1 0 0 1 1-1z"/>
+    </g>
+    <g id="i-bookmark-f" fill="currentColor" stroke="none">
+      <path d="M6.5 4h11a1 1 0 0 1 1 1v15.2L12 16.4l-6.5 3.8V5a1 1 0 0 1 1-1z"/>
+    </g>
+    <g id="i-share" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 15V4"/><path d="m8 7.5 4-3.5 4 3.5"/><path d="M5 10v9.2A1.8 1.8 0 0 0 6.8 21h10.4a1.8 1.8 0 0 0 1.8-1.8V10"/>
+    </g>
+    <g id="i-ext" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M14 5h5v5"/><path d="M19 5l-8 8"/><path d="M9.5 6H6.8A1.8 1.8 0 0 0 5 7.8v9.4A1.8 1.8 0 0 0 6.8 19h9.4a1.8 1.8 0 0 0 1.8-1.8V14.5"/>
+    </g>
+    <g id="i-clock" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>
+    </g>
+    <g id="i-back" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M19 12H5"/><path d="m11 18-6-6 6-6"/>
+    </g>
+    <g id="i-close" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M6 6l12 12M18 6 6 18"/>
+    </g>
+    <g id="i-alert" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 4 2.8 19.2a1.2 1.2 0 0 0 1 1.8h16.4a1.2 1.2 0 0 0 1-1.8L12 4z"/><path d="M12 10v4"/><path d="M12 17.6h.01"/>
+    </g>
+    <g id="i-check" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="m5 12.5 4.5 4.5L19 7"/>
+    </g>
+    <g id="i-chev-l" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="m14 6-6 6 6 6"/>
+    </g>
+    <g id="i-chev-r" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="m10 6 6 6-6 6"/>
+    </g>
+    <g id="i-chev-d" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="m6 9 6 6 6-6"/>
+    </g>
+    <g id="i-trash" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 7h16"/><path d="M9.5 7V5.2A1.2 1.2 0 0 1 10.7 4h2.6a1.2 1.2 0 0 1 1.2 1.2V7"/>
+      <path d="M6.5 7l.8 12a1.8 1.8 0 0 0 1.8 1.7h5.8a1.8 1.8 0 0 0 1.8-1.7l.8-12"/><path d="M10 11v6M14 11v6"/>
+    </g>
+    <g id="i-edit" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M17 3.5a2.1 2.1 0 0 1 3 3L8 18.5 4 19.5l1-4z"/>
+    </g>
+    <g id="i-more" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+      <path d="M12 5.5h.01M12 12h.01M12 18.5h.01"/>
+    </g>
+    <g id="i-rss" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M5 5.5a13.5 13.5 0 0 1 13.5 13.5"/><path d="M5 11a8 8 0 0 1 8 8"/><path d="M5.5 18.5h.01"/>
+    </g>
+    <g id="i-copy" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+      <rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15h-.5A1.5 1.5 0 0 1 3 13.5v-9A1.5 1.5 0 0 1 4.5 3h9A1.5 1.5 0 0 1 15 4.5V5"/>
+    </g>
+    <g id="i-sun" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/>
+    </g>
+    <g id="i-moon" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+      <path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>
+    </g>
+    <g id="i-monitor" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+      <rect x="3" y="4.5" width="18" height="12" rx="1.5"/><path d="M9 20h6M12 16.5V20"/>
+    </g>
+    <g id="i-folder" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+      <path d="M3.5 7.2A1.7 1.7 0 0 1 5.2 5.5h4.1l2 2.5h7.5a1.7 1.7 0 0 1 1.7 1.7v7.6a1.7 1.7 0 0 1-1.7 1.7H5.2a1.7 1.7 0 0 1-1.7-1.7z"/>
+    </g>
+    <g id="i-inbox" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+      <path d="M3.5 13.5h4l1.6 2.5h5.8l1.6-2.5h4"/><path d="M3.5 13.5 6.3 5.6a1.8 1.8 0 0 1 1.7-1.3h8a1.8 1.8 0 0 1 1.7 1.3l2.8 7.9v4.7a1.8 1.8 0 0 1-1.8 1.8H5.3a1.8 1.8 0 0 1-1.8-1.8z"/>
+    </g>
+  </defs>
+</svg>
+
+<!-- ======================= 文档头 ======================= -->
+<header class="doc-header">
+  <div class="doc-title"><em>AiRSS</em> 设计预览 <span class="ver">v1.0 · 像素基准 · 规范见 design-system.md</span></div>
+  <button class="btn btn--secondary" id="themeToggle" type="button" aria-pressed="false">
+    <svg class="ic" aria-hidden="true"><use href="#i-moon"/></svg><span>深色</span>
+  </button>
+</header>
+
+<main class="doc-main">
+
+<!-- ============================================================
+     1 · 主界面（可交互）
+     ============================================================ -->
+<section class="doc-section" id="demo-main">
+  <div class="doc-section-head">
+    <h2>1 · 主界面（uTools 小窗 800×620）</h2>
+    <p>卡片可点击进入阅读面板 · 工具栏切换列表 / 卡片视图 · 侧栏手柄可折叠 · 刷新演示进度条 · 「全部已读」演示未读双通道淡出。示例数据为中文演示数据。</p>
+  </div>
+
+  <div class="frame-wrap">
+    <div class="app" id="app">
+
+      <!-- 侧栏 -->
+      <aside class="sidebar" aria-label="导航侧栏">
+        <div class="sb-full">
+          <div class="sb-scroll">
+            <div>
+              <div class="brand-row"><h1 class="brand-name">AiRSS</h1><span class="badge">AI 驱动</span></div>
+              <p class="brand-sub">智能 RSS 阅读器</p>
+            </div>
+            <div class="field field--search sb-search">
+              <svg class="ic ic-14" aria-hidden="true"><use href="#i-search"/></svg>
+              <input id="searchInput" type="text" placeholder="搜索文章…" aria-label="搜索文章">
+              <span class="kbd">Ctrl F</span>
+            </div>
+            <div class="stats" aria-label="统计">
+              <div class="stat"><span class="stat-num num" id="statAll">128</span><span class="stat-label">所有文章</span></div>
+              <div class="stat"><span class="stat-num num" id="statUnread">12</span><span class="stat-label">未读</span></div>
+              <div class="stat"><span class="stat-num num" id="statStar">6</span><span class="stat-label">收藏</span></div>
+            </div>
+            <div class="sb-section">
+              <div class="sb-section-head"><span>订阅源</span>
+                <button class="icon-btn icon-btn--accent" type="button" aria-label="添加订阅源" title="添加订阅源"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg></button>
+              </div>
+              <ul class="feed-list">
+                <li><button class="feed-item" type="button">
+                  <span class="fi-text"><span class="fi-name">阮一峰的网络日志</span><span class="fi-sub">ruanyifeng.com</span></span>
+                  <span class="fi-count num">4</span>
+                  <span class="fi-more" title="更多操作"><svg class="ic ic-14" aria-hidden="true"><use href="#i-more"/></svg></span>
+                </button></li>
+                <li><button class="feed-item" type="button">
+                  <span class="fi-text"><span class="fi-name">少数派</span><span class="fi-sub">sspai.com</span></span>
+                  <span class="fi-count num">5</span>
+                  <span class="fi-more" title="更多操作"><svg class="ic ic-14" aria-hidden="true"><use href="#i-more"/></svg></span>
+                </button></li>
+                <li><button class="feed-item" type="button">
+                  <span class="fi-text"><span class="fi-name">V2EX · 分享创造</span><span class="fi-sub">v2ex.com</span></span>
+                  <span class="fi-count num">2</span>
+                  <span class="fi-more" title="更多操作"><svg class="ic ic-14" aria-hidden="true"><use href="#i-more"/></svg></span>
+                </button></li>
+                <li><button class="feed-item" type="button">
+                  <span class="fi-text"><span class="fi-name">Hacker News</span><span class="fi-sub">news.ycombinator.com</span></span>
+                  <span class="fi-count num">1</span>
+                  <span class="fi-more" title="更多操作"><svg class="ic ic-14" aria-hidden="true"><use href="#i-more"/></svg></span>
+                </button></li>
+              </ul>
+            </div>
+            <div class="sb-section">
+              <div class="sb-section-head"><span>分类</span></div>
+              <ul class="cat-list">
+                <li><button class="cat-item is-selected" type="button" aria-current="true">全部 <span class="cat-count num">128</span></button></li>
+                <li><button class="cat-item" type="button">技术 <span class="cat-count num">58</span></button></li>
+                <li><button class="cat-item" type="button">资讯 <span class="cat-count num">40</span></button></li>
+                <li><button class="cat-item" type="button">默认 <span class="cat-count num">30</span></button></li>
+              </ul>
+            </div>
+          </div>
+          <div class="sb-footer">
+            <button class="btn btn--muted btn--sm" type="button"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg><span>导入 OPML</span></button>
+            <button class="btn btn--muted btn--sm" type="button"><svg class="ic" aria-hidden="true"><use href="#i-settings"/></svg><span>设置</span></button>
+            <button class="btn btn--muted btn--sm sb-toggle" id="sbToggle" type="button" aria-label="折叠侧栏" aria-expanded="true" title="折叠侧栏"><svg class="ic" aria-hidden="true"><use href="#i-chev-l"/></svg></button>
+          </div>
+        </div>
+
+        <!-- 折叠态图标轨 -->
+        <div class="sb-rail" aria-hidden="true">
+          <div class="rail-brand">A</div>
+          <button class="icon-btn" type="button" tabindex="-1"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg></button>
+          <button class="icon-btn icon-btn--accent" type="button" tabindex="-1" style="width:24px;height:24px"><svg class="ic ic-14" aria-hidden="true"><use href="#i-plus"/></svg></button>
+          <span class="rail-dot num" data-n="4">阮</span>
+          <span class="rail-dot num" data-n="5">少</span>
+          <span class="rail-dot num" data-n="2">V</span>
+          <span class="rail-dot num" data-n="1">H</span>
+        </div>
+      </aside>
+
+      <!-- 内容区 -->
+      <section class="content" id="content" aria-label="文章列表">
+        <div class="content-progress" aria-hidden="true"></div>
+
+        <header class="toolbar">
+          <div class="tb-left">
+            <h2 class="tb-title">所有文章</h2>
+            <button class="icon-btn icon-btn--32" id="refreshBtn" type="button" aria-label="刷新全部订阅源" title="刷新">
+              <svg class="ic ic-18" aria-hidden="true"><use href="#i-refresh"/></svg>
+            </button>
+            <button class="btn btn--ghost btn--sm" id="markAllBtn" type="button">
+              <svg class="ic" aria-hidden="true"><use href="#i-done"/></svg>全部已读
+            </button>
+          </div>
+          <div class="tb-right">
+            <div class="view-toggle" role="group" aria-label="视图切换">
+              <button class="vt-btn is-active" id="vtGrid" type="button" aria-pressed="true" aria-label="卡片视图" title="卡片视图">
+                <svg class="ic ic-18" aria-hidden="true"><use href="#i-grid"/></svg>
+              </button>
+              <button class="vt-btn" id="vtList" type="button" aria-pressed="false" aria-label="列表视图" title="列表视图">
+                <svg class="ic ic-18" aria-hidden="true"><use href="#i-list"/></svg>
+              </button>
+            </div>
+            <div class="dd" id="sortDD">
+              <button class="dd-btn" id="sortBtn" type="button" aria-haspopup="listbox" aria-expanded="false">
+                <svg class="ic ic-14" aria-hidden="true"><use href="#i-sort"/></svg>
+                <span id="sortLabel">相关性</span>
+                <svg class="ic ic-14" aria-hidden="true"><use href="#i-chev-d"/></svg>
+              </button>
+              <div class="dd-menu" id="sortMenu" role="listbox" aria-label="排序方式" hidden>
+                <button class="dd-item is-on" type="button" role="option" aria-selected="true">相关性<svg class="ic ic-14" aria-hidden="true"><use href="#i-check"/></svg></button>
+                <button class="dd-item" type="button" role="option" aria-selected="false">最新发布<svg class="ic ic-14" aria-hidden="true"><use href="#i-check"/></svg></button>
+                <button class="dd-item" type="button" role="option" aria-selected="false">最旧发布<svg class="ic ic-14" aria-hidden="true"><use href="#i-check"/></svg></button>
+                <button class="dd-item" type="button" role="option" aria-selected="false">未读优先<svg class="ic ic-14" aria-hidden="true"><use href="#i-check"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <div class="feed-scroll">
+          <!-- 卡片视图 -->
+          <div class="cards" id="cardsBox">
+            <div class="card" tabindex="0" data-open>
+              <div class="card-banner banner-dusk" aria-hidden="true">
+                <span class="banner-kicker">科技爱好者周刊 · WEEKLY</span>
+                <span class="banner-no num">310</span>
+              </div>
+              <div class="card-body">
+                <div class="tag">周刊</div>
+                <h3 class="card-title"><span class="dot" aria-hidden="true"></span>科技爱好者周刊（第 310 期）：记录每周值得分享的科技内容</h3>
+                <p class="card-summary">本期话题：国产开源模型生态的一周动态；工具推荐：一个把网页正文转成 Markdown 的命令行工具；以及本周的图片与言论。</p>
+                <div class="card-meta">
+                  <span class="src">阮一峰的网络日志</span><span class="sep">·</span>
+                  <span class="num">18 小时前</span><span class="sep">·</span>
+                  <span class="read-time"><svg class="ic ic-13" aria-hidden="true"><use href="#i-clock"/></svg><span class="num">9 分钟</span></span>
+                  <span class="meta-actions">
+                    <span class="act-btn" role="button" tabindex="-1" aria-label="分享"><svg class="ic ic-14" aria-hidden="true"><use href="#i-share"/></svg></span>
+                    <span class="act-btn js-star" role="button" tabindex="-1" aria-label="收藏">
+                      <svg class="ic ic-14 ic-l" aria-hidden="true"><use href="#i-bookmark"/></svg>
+                      <svg class="ic ic-14 ic-f" aria-hidden="true"><use href="#i-bookmark-f"/></svg>
+                    </span>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div class="card" tabindex="0" data-open>
+              <div class="card-body">
+                <div class="tag">技术</div>
+                <h3 class="card-title"><span class="dot" aria-hidden="true"></span>写了一个把网页转成 Markdown 的爬虫，顺便聊聊正文提取的几种思路</h3>
+                <p class="card-summary">从 readability 算法讲到 DOM 特征打分，再到列表页与正文页混排的处理，附一个月真实数据的对比结论：规则文件比模型便宜。</p>
+                <div class="card-meta">
+                  <span class="src">少数派</span><span class="sep">·</span>
+                  <span class="num">2 天前</span><span class="sep">·</span>
+                  <span class="read-time"><svg class="ic ic-13" aria-hidden="true"><use href="#i-clock"/></svg><span class="num">6 分钟</span></span>
+                  <span class="meta-actions">
+                    <span class="act-btn" role="button" tabindex="-1" aria-label="分享"><svg class="ic ic-14" aria-hidden="true"><use href="#i-share"/></svg></span>
+                    <span class="act-btn js-star is-on" role="button" tabindex="-1" aria-label="已收藏">
+                      <svg class="ic ic-14 ic-l" aria-hidden="true"><use href="#i-bookmark"/></svg>
+                      <svg class="ic ic-14 ic-f" aria-hidden="true"><use href="#i-bookmark-f"/></svg>
+                    </span>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div class="card is-unread" tabindex="0" data-open>
+              <div class="card-banner banner-sunrise" aria-hidden="true">
+                <span class="banner-kicker">DAILY DIGEST</span>
+                <span class="banner-tagline">HN DAILY · SEP 04</span>
+              </div>
+              <div class="card-body">
+                <div class="tag">资讯</div>
+                <h3 class="card-title"><span class="dot" aria-hidden="true"></span>Android 16 将引入桌面模式；Firefox 紧急修复在野利用的零日漏洞</h3>
+                <p class="card-summary">本周安全与平台动态汇总：Google 确认桌面模式回归，Mozilla 发布 128.1 更新，该漏洞已被观察到在野利用，建议尽快升级。</p>
+                <div class="card-meta">
+                  <span class="src">Hacker News</span><span class="sep">·</span>
+                  <span class="num">3 天前</span><span class="sep">·</span>
+                  <span class="read-time"><svg class="ic ic-13" aria-hidden="true"><use href="#i-clock"/></svg><span class="num">4 分钟</span></span>
+                  <span class="meta-actions">
+                    <span class="act-btn" role="button" tabindex="-1" aria-label="分享"><svg class="ic ic-14" aria-hidden="true"><use href="#i-share"/></svg></span>
+                    <span class="act-btn js-star" role="button" tabindex="-1" aria-label="收藏">
+                      <svg class="ic ic-14 ic-l" aria-hidden="true"><use href="#i-bookmark"/></svg>
+                      <svg class="ic ic-14 ic-f" aria-hidden="true"><use href="#i-bookmark-f"/></svg>
+                    </span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 列表视图 -->
+          <div class="list" id="listBox" hidden>
+            <div class="row is-unread is-current" tabindex="0" data-open>
+              <span class="dot" aria-hidden="true"></span>
+              <span class="row-title">科技爱好者周刊（第 310 期）：记录每周值得分享的科技内容</span>
+              <span class="row-src">阮一峰的网络日志</span><span class="row-time num">18 小时前</span>
+              <span class="row-thumb thumb-dusk" aria-hidden="true"></span>
+            </div>
+            <div class="row is-unread" tabindex="0" data-open>
+              <span class="dot" aria-hidden="true"></span>
+              <span class="row-title">「核聚变发电，还要等多久？」</span>
+              <span class="row-src">阮一峰的网络日志</span><span class="row-time num">20 小时前</span>
+            </div>
+            <div class="row" tabindex="0" data-open>
+              <span class="dot" aria-hidden="true"></span>
+              <span class="row-title">写了一个把网页转成 Markdown 的爬虫，顺便聊聊正文提取的几种思路</span>
+              <span class="row-src">少数派</span><span class="row-time num">2 天前</span>
+              <span class="row-thumb thumb-sun" aria-hidden="true"></span>
+            </div>
+            <div class="row" tabindex="0" data-open>
+              <span class="dot" aria-hidden="true"></span>
+              <span class="row-title">分享创造：我做了一个完全离线的划词翻译插件</span>
+              <span class="row-src">V2EX · 分享创造</span><span class="row-time num">3 天前</span>
+            </div>
+            <div class="row" tabindex="0" data-open>
+              <span class="dot" aria-hidden="true"></span>
+              <span class="row-title">Android 16 将引入桌面模式；Firefox 修复零日漏洞</span>
+              <span class="row-src">Hacker News</span><span class="row-time num">3 天前</span>
+              <span class="row-thumb thumb-dusk" aria-hidden="true"></span>
+            </div>
+            <div class="row" tabindex="0" data-open>
+              <span class="dot" aria-hidden="true"></span>
+              <span class="row-title">如何用一台二手小主机搭建家庭 NAS</span>
+              <span class="row-src">月光博客</span><span class="row-time num">5 天前</span>
+            </div>
+            <div class="row" tabindex="0" data-open>
+              <span class="dot" aria-hidden="true"></span>
+              <span class="row-title">航天器为什么都要进行热真空试验？</span>
+              <span class="row-src">知乎每日精选</span><span class="row-time num">6 天前</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 阅读面板（覆盖内容列：inset 0 于 .content，侧栏保持可见） -->
+        <section class="reader" id="reader" role="region" aria-label="阅读面板" hidden>
+        <header class="reader-top">
+          <button class="btn btn--ghost btn--sm" id="readerBack" type="button">
+            <svg class="ic" aria-hidden="true"><use href="#i-back"/></svg>返回<span class="kbd">Esc</span>
+          </button>
+          <div class="reader-top-actions">
+            <button class="btn btn--ghost btn--sm" id="serifBtn" type="button" aria-pressed="false">衬线</button>
+            <div class="fs-step" role="group" aria-label="正文字号">
+              <button id="fsMinus" type="button" aria-label="减小字号">A−</button>
+              <span class="fs-val num" id="fsLabel">16</span>
+              <button id="fsPlus" type="button" aria-label="增大字号">A+</button>
+            </div>
+          </div>
+        </header>
+        <div class="reader-scroll">
+          <article class="reader-article" id="readerArticle">
+            <h1 class="reader-title">科技爱好者周刊（第 310 期）：记录每周值得分享的科技内容</h1>
+            <div class="reader-meta">
+              <span class="src">阮一峰的网络日志</span><span class="sep">·</span>
+              <span class="num">18 小时前</span><span class="sep">·</span>
+              <span class="read-time"><svg class="ic ic-13" aria-hidden="true"><use href="#i-clock"/></svg><span class="num">9 分钟</span></span>
+              <button class="origin" type="button"><svg class="ic ic-13" aria-hidden="true"><use href="#i-ext"/></svg>原文</button>
+            </div>
+            <div class="reader-body">
+              <p>这里记录每周值得分享的科技内容，周五发布。本杂志开源，欢迎投稿，或提交 issue 推荐你自己的项目。</p>
+              <p>本期话题：国产开源模型生态的一周动态。三个团队先后放出了权重和推理代码，长上下文与工具调用的评测已经卷到没有区分度，下一阶段的差异点大概率在数据质量与工程稳定性上。</p>
+              <h2>一、工具</h2>
+              <p><code>md2web</code>——把网页正文转成 Markdown 的命令行工具：内置列表页规则，支持站点级配置文件；正文页采用 DOM 特征打分，遇到付费墙会明确报错，而不是输出半截内容。</p>
+              <blockquote>一点感想：正文提取这件事，readability 算法解决了八成问题，剩下两成是各站的脏数据。工程上别追求通用解，规则文件比模型便宜。</blockquote>
+              <p><code>knip-lite</code>——扫描项目里未被引用的导出与依赖，输出可直接执行的卸载命令，适合发版前的瘦身。</p>
+              <h2>二、新闻</h2>
+              <p>Android 16 将正式引入桌面模式；Firefox 发布 128.1 紧急更新，修复一个已被在野利用的零日漏洞，建议尽快升级。</p>
+              <h2>三、本周一句话</h2>
+              <p>「订阅源的忠诚度，取决于你删除它的果断程度。」——本期读者留言</p>
+            </div>
+          </article>
+        </div>
+        <footer class="reader-bar">
+          <button class="btn btn--ghost btn--sm is-on" id="readToggle" type="button" aria-pressed="true">
+            <svg class="ic" aria-hidden="true"><use href="#i-check"/></svg><span id="readToggleLabel">已读</span><span class="kbd">m</span>
+          </button>
+          <button class="btn btn--ghost btn--sm" id="readerStar" type="button" aria-pressed="false">
+            <svg class="ic" aria-hidden="true"><use href="#i-bookmark"/></svg><span id="readerStarLabel">收藏</span><span class="kbd">s</span>
+          </button>
+          <span class="spacer"></span>
+          <button class="btn btn--ghost btn--sm" id="copyBtn" type="button"><svg class="ic" aria-hidden="true"><use href="#i-copy"/></svg>复制链接</button>
+          <button class="btn btn--secondary btn--sm" type="button"><svg class="ic" aria-hidden="true"><use href="#i-ext"/></svg>浏览器打开</button>
+        </footer>
+        </section>
+
+        <div class="toast" id="toast" role="status" aria-live="polite"></div>
+      </section>
+    </div>
+  </div>
+
+  <div class="doc-kbd-row" aria-label="键盘流说明">
+    <span class="k"><span class="kbd">j</span><span class="kbd">k</span> 上一篇 / 下一篇</span>
+    <span class="k"><span class="kbd">Enter</span> 阅读</span>
+    <span class="k"><span class="kbd">m</span> 已读</span>
+    <span class="k"><span class="kbd">s</span> 收藏</span>
+    <span class="k"><span class="kbd">Shift A</span> 全部已读</span>
+    <span class="k"><span class="kbd">Ctrl F</span> 搜索</span>
+    <span class="k"><span class="kbd">Esc</span> 逐级返回</span>
+    <span style="margin-left:auto;color:var(--doc-sub)">预览稿仅演示 Esc / 点击流，完整快捷键见 design-system.md §8</span>
+  </div>
+</section>
+
+<!-- ============================================================
+     2 · 状态与界面画廊（静态）
+     ============================================================ -->
+<section class="doc-section" id="demo-gallery">
+  <div class="doc-section-head">
+    <h2>2 · 状态与界面画廊</h2>
+    <p>添加订阅三步与失败态 · 空态三态 · 加载骨架 · 源错误 · 设置页五组 · 危险操作二次确认 · 分离窗口三栏（1200×800 @62%）。随右上角按钮同步切换深浅主题。</p>
+  </div>
+
+  <div class="gallery">
+
+    <!-- 添加订阅 · 校验中 -->
+    <div class="mini">
+      <div class="mini-head"><span>添加订阅 · 1 校验中</span><span class="no">AddFeed / step-1</span></div>
+      <div class="mini-center">
+        <div class="modal" style="width:340px">
+          <div class="modal-head"><h3>添加订阅源</h3><button class="icon-btn" type="button" aria-label="关闭"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+          <div class="modal-steps">
+            <span class="step is-current"><i>1</i>校验</span>
+            <span class="step"><i>2</i>候选</span>
+            <span class="step"><i>3</i>确认</span>
+          </div>
+          <div class="field field--sm"><input type="text" value="ruanyifeng.com" aria-label="站点地址" readonly></div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:14px;font-size:12.5px;color:var(--text-2)">
+            <svg class="ic ic-14 spin" style="color:var(--accent-strong)" aria-hidden="true"><use href="#i-refresh"/></svg>正在探测 Feed…
+          </div>
+          <div style="margin-top:8px;font-family:var(--font-mono);font-size:11px;color:var(--text-3);line-height:1.8">
+            <div><span style="color:var(--accent-deep)">✓</span> GET / → 200 HTML</div>
+            <div>· /feed …</div>
+            <div>· /rss.xml …</div>
+          </div>
+          <div class="modal-foot"><button class="btn btn--ghost btn--sm" type="button">取消</button></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 添加订阅 · 发现候选 -->
+    <div class="mini">
+      <div class="mini-head"><span>添加订阅 · 2 发现候选</span><span class="no">AddFeed / step-2</span></div>
+      <div class="mini-center">
+        <div class="modal" style="width:340px">
+          <div class="modal-head"><h3>添加订阅源</h3><button class="icon-btn" type="button" aria-label="关闭"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+          <div class="modal-steps">
+            <span class="step is-done"><i><svg class="ic ic-12" aria-hidden="true"><use href="#i-check"/></svg></i>校验</span>
+            <span class="step is-current"><i>2</i>候选</span>
+            <span class="step"><i>3</i>确认</span>
+          </div>
+          <div style="border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden">
+            <div style="display:flex;gap:10px;align-items:center;padding:10px 12px;background:var(--bg-selected)">
+              <span class="radio is-on" aria-hidden="true"></span>
+              <span style="flex:1;min-width:0">
+                <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--text-1)">阮一峰的网络日志 <span class="badge badge--neutral">RSS</span></span>
+                <span style="display:block;font-size:11.5px;color:var(--text-3)">最近 30 篇 · ruanyifeng.com/feed</span>
+              </span>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;padding:10px 12px;border-top:1px solid var(--border)">
+              <span class="radio" aria-hidden="true"></span>
+              <span style="flex:1;min-width:0">
+                <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:500;color:var(--text-1)">博客园 · 精华区 <span class="badge badge--neutral">Atom</span></span>
+                <span style="display:block;font-size:11.5px;color:var(--text-3)">最近 50 篇 · cnblogs.com/feed</span>
+              </span>
+            </div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn btn--ghost btn--sm" type="button">上一步</button>
+            <button class="btn btn--primary btn--sm" type="button">继续</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 添加订阅 · 确认 -->
+    <div class="mini">
+      <div class="mini-head"><span>添加订阅 · 3 确认</span><span class="no">AddFeed / step-3</span></div>
+      <div class="mini-center">
+        <div class="modal" style="width:340px">
+          <div class="modal-head"><h3>添加订阅源</h3><button class="icon-btn" type="button" aria-label="关闭"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+          <div class="modal-steps">
+            <span class="step is-done"><i><svg class="ic ic-12" aria-hidden="true"><use href="#i-check"/></svg></i>校验</span>
+            <span class="step is-done"><i><svg class="ic ic-12" aria-hidden="true"><use href="#i-check"/></svg></i>候选</span>
+            <span class="step is-current"><i>3</i>确认</span>
+          </div>
+          <label class="form-label" for="af-name">名称</label>
+          <div class="field field--sm"><input id="af-name" type="text" value="阮一峰的网络日志"></div>
+          <span class="form-label">分类</span>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            <button class="chip is-on" type="button">技术</button>
+            <button class="chip" type="button">资讯</button>
+            <button class="chip" type="button">默认</button>
+            <button class="chip" type="button"><svg class="ic ic-12" aria-hidden="true" style="margin-right:4px"><use href="#i-plus"/></svg>新建</button>
+          </div>
+          <label class="form-label" for="af-freq">刷新频率</label>
+          <div class="dd-btn" style="width:100%;justify-content:space-between" id="af-freq" role="combobox">每 30 分钟（跟随全局）<svg class="ic ic-14" aria-hidden="true"><use href="#i-chev-d"/></svg></div>
+          <div class="modal-foot">
+            <button class="btn btn--ghost btn--sm" type="button">取消</button>
+            <button class="btn btn--primary btn--sm" type="button"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>添加</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 添加订阅 · 失败态 -->
+    <div class="mini">
+      <div class="mini-head"><span>添加订阅 · 失败态</span><span class="no">AddFeed / failed</span></div>
+      <div class="mini-center">
+        <div class="modal" style="width:340px">
+          <div class="modal-head"><h3>添加订阅源</h3><button class="icon-btn" type="button" aria-label="关闭"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+          <div style="display:flex;gap:10px;align-items:flex-start;padding:2px 0 4px">
+            <span style="width:34px;height:34px;border-radius:50%;background:var(--danger-soft);display:inline-flex;align-items:center;justify-content:center;color:var(--danger-text);flex:none">
+              <svg class="ic ic-18" aria-hidden="true"><use href="#i-alert"/></svg>
+            </span>
+            <span>
+              <b style="display:block;font-size:14px;color:var(--text-1)">未在该地址发现 Feed</b>
+              <span style="display:block;font-size:12px;color:var(--text-3);margin-top:2px">已尝试以下路径：</span>
+            </span>
+          </div>
+          <div style="margin:8px 0 4px;font-family:var(--font-mono);font-size:11px;color:var(--text-3);line-height:1.8">
+            <div>/feed → 404</div>
+            <div>/rss.xml → 404</div>
+            <div>/atom.xml → 超时（12s）</div>
+          </div>
+          <label class="form-label" for="af-manual">手动粘贴 Feed 直链</label>
+          <div class="field field--sm"><input id="af-manual" type="text" placeholder="粘贴 Feed 直链…"></div>
+          <p style="margin:10px 0 0;font-size:11.5px;color:var(--text-3);line-height:1.6">也可试试 RSSHub：<code style="font-family:var(--font-mono);font-size:10.5px">https://rsshub.app/{域名}</code>（仅提示，不自动请求）</p>
+          <div class="modal-foot">
+            <button class="btn btn--ghost btn--sm" type="button">取消</button>
+            <button class="btn btn--secondary btn--sm" type="button"><svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg>重试</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 空态 · 首用 -->
+    <div class="mini">
+      <div class="mini-head"><span>空态 · 首次使用引导</span><span class="no">Empty / first-run</span></div>
+      <div class="empty">
+        <span class="empty-ic"><svg class="ic ic-24" aria-hidden="true" style="width:32px;height:32px"><use href="#i-rss"/></svg></span>
+        <h3>从第一个订阅源开始</h3>
+        <p>粘贴一个站点地址，AiRSS 会自动发现它的 Feed</p>
+        <div class="rowline">
+          <div class="field field--sm field--search" style="flex:1">
+            <svg class="ic ic-14" aria-hidden="true"><use href="#i-rss"/></svg>
+            <input type="text" placeholder="example.com" aria-label="站点地址">
+          </div>
+          <button class="btn btn--primary btn--sm" type="button" style="height:32px">添加</button>
+        </div>
+        <button class="btn btn--ghost btn--sm ghostline" type="button"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg>导入 OPML</button>
+        <div class="divider">或从这些源开始</div>
+        <div class="chips">
+          <button class="chip" type="button">阮一峰的网络日志</button>
+          <button class="chip" type="button">少数派</button>
+          <button class="chip" type="button">V2EX</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 空态 · 分类无文章 -->
+    <div class="mini">
+      <div class="mini-head"><span>空态 · 分类无文章</span><span class="no">Empty / category</span></div>
+      <div class="empty">
+        <span class="empty-ic empty-ic--sm empty-ic--flat"><svg class="ic ic-20" aria-hidden="true" style="width:26px;height:26px"><use href="#i-folder"/></svg></span>
+        <h3 style="font-size:16px">「技术」分类还没有文章</h3>
+        <p>切换到全部，或检查订阅源是否正常同步</p>
+        <button class="btn btn--ghost btn--sm act" type="button">查看全部文章</button>
+      </div>
+    </div>
+
+    <!-- 空态 · 全部读完 -->
+    <div class="mini">
+      <div class="mini-head"><span>空态 · 全部读完（庆祝式）</span><span class="no">Empty / all-read</span></div>
+      <div class="empty celebrate">
+        <span class="empty-ic empty-ic--sm" style="background:var(--bg-selected)"><span class="d3" aria-hidden="true"></span><svg class="ic ic-20" aria-hidden="true" style="width:24px;height:24px"><use href="#i-check"/></svg></span>
+        <h3 style="font-size:18px">全部读完了</h3>
+        <p>128 篇文章已读清零，去散散步吧</p>
+        <button class="btn btn--ghost btn--sm act" type="button"><svg class="ic" aria-hidden="true"><use href="#i-bookmark"/></svg>查看收藏（6）</button>
+      </div>
+    </div>
+
+    <!-- 骨架 -->
+    <div class="mini">
+      <div class="mini-head"><span>加载骨架（同步中）</span><span class="no">Skeleton</span></div>
+      <div class="skel-demo" aria-busy="true">
+        <div class="skel-card">
+          <div class="sk sk-banner"></div>
+          <div class="sk-body">
+            <div class="sk sk-line h60"></div>
+            <div class="sk sk-line thin"></div>
+            <div class="sk sk-line thin h40"></div>
+          </div>
+        </div>
+        <div class="skel-card"><div class="sk-body"><div class="sk sk-line h60"></div><div class="sk sk-line thin"></div><div class="sk sk-line thin h40"></div></div></div>
+        <div class="skel-row"><div class="sk sk-line thin" style="flex:1"></div><div class="sk sk-line thin" style="width:64px;margin:0"></div></div>
+        <div class="skel-row"><div class="sk sk-line thin" style="flex:1"></div><div class="sk sk-line thin" style="width:64px;margin:0"></div></div>
+      </div>
+    </div>
+
+    <!-- 源错误 -->
+    <div class="mini">
+      <div class="mini-head"><span>源错误 · 红点 + 悬浮详情</span><span class="no">Feed error</span></div>
+      <div class="err-wrap">
+        <ul class="err-list" style="flex:1">
+          <li><button class="feed-item" type="button">
+            <span class="fi-text"><span class="fi-name">月光博客</span><span class="fi-sub">williamlong.info</span></span>
+            <span aria-hidden="true" title="同步失败" style="width:8px;height:8px;border-radius:50%;background:var(--danger);box-shadow:0 0 0 2px var(--bg-panel);flex:none"></span>
+          </button></li>
+          <li><button class="feed-item" type="button">
+            <span class="fi-text"><span class="fi-name">阮一峰的网络日志</span><span class="fi-sub">ruanyifeng.com</span></span>
+            <span class="fi-count num">4</span>
+          </button></li>
+        </ul>
+        <div class="tip" role="tooltip" style="flex:1.2">
+          <b><svg class="ic ic-14" aria-hidden="true"><use href="#i-alert"/></svg>同步失败：DNS 解析错误</b>
+          上次成功：3 天前 · 已连续失败 14 次
+          <small>错误详情：getaddrinfo ENOTFOUND williamlong.info</small>
+          <span class="link"><svg class="ic ic-13" aria-hidden="true" style="display:inline-block;vertical-align:-2px"><use href="#i-refresh"/></svg> 重试</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 设置页 -->
+    <div class="mini">
+      <div class="mini-head"><span>设置页 · 五组</span><span class="no">Settings</span></div>
+      <div class="settings-scroll">
+        <div class="group">
+          <div class="group-title">外观</div>
+          <div class="set-row"><span class="lab"><b>主题</b></span>
+            <span class="ctl"><span class="seg">
+              <button type="button"><svg class="ic ic-14" aria-hidden="true"><use href="#i-sun"/></svg>浅色</button>
+              <button type="button"><svg class="ic ic-14" aria-hidden="true"><use href="#i-moon"/></svg>深色</button>
+              <button class="is-on" type="button"><svg class="ic ic-14" aria-hidden="true"><use href="#i-monitor"/></svg>跟随系统</button>
+            </span></span>
+          </div>
+          <div class="set-row"><span class="lab"><b>正文字号</b><small>阅读面板正文，4 档</small></span>
+            <span class="ctl"><span class="seg">
+              <button type="button">小</button><button class="is-on" type="button">标准</button><button type="button">大</button><button type="button">特大</button>
+            </span></span>
+          </div>
+          <div class="set-row"><span class="lab"><b>默认视图</b></span>
+            <span class="ctl"><span class="seg"><button class="is-on" type="button">卡片</button><button type="button">列表</button></span></span>
+          </div>
+        </div>
+        <div class="group">
+          <div class="group-title">AI 功能</div>
+          <div class="ai-note">
+            <svg class="ic ic-18" aria-hidden="true"><use href="#i-rss"/></svg>
+            <p><span class="badge badge--soft" style="margin-right:6px">二期</span>智能摘要、自动分类与翻译将在二期开放。当前版本专注可靠的订阅阅读。</p>
+          </div>
+        </div>
+        <div class="group">
+          <div class="group-title">通知</div>
+          <div class="set-row"><span class="lab"><b>新文章通知</b><small>仅在该源未读 ≥10 篇时提醒</small></span>
+            <span class="ctl"><button class="sw is-on" type="button" role="switch" aria-checked="true" aria-label="新文章通知"></button></span>
+          </div>
+        </div>
+        <div class="group">
+          <div class="group-title">数据</div>
+          <div class="set-row"><span class="lab"><b>刷新频率</b></span>
+            <span class="ctl"><span class="dd-btn" style="height:30px">每 30 分钟<svg class="ic ic-14" aria-hidden="true"><use href="#i-chev-d"/></svg></span></span>
+          </div>
+          <div class="set-row"><span class="lab"><b>每源保留</b></span>
+            <span class="ctl"><span class="dd-btn" style="height:30px">200 篇<svg class="ic ic-14" aria-hidden="true"><use href="#i-chev-d"/></svg></span></span>
+          </div>
+          <div class="set-row"><span class="lab"><b>订阅数据</b></span>
+            <span class="ctl" style="gap:8px">
+              <button class="btn btn--secondary btn--sm" type="button"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg>导入 OPML</button>
+              <button class="btn btn--secondary btn--sm" type="button"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg>导出 OPML</button>
+            </span>
+          </div>
+          <div class="set-row" style="border-top:1px dashed var(--border-strong)">
+            <span class="lab"><b style="color:var(--danger-text)">清空所有数据</b><small>删除全部文章与订阅源，不可恢复</small></span>
+            <span class="ctl"><button class="btn btn--danger-o btn--sm" type="button"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg>清空所有数据…</button></span>
+          </div>
+        </div>
+        <div class="group">
+          <div class="group-title">关于</div>
+          <div class="set-row"><span class="lab"><b>版本</b></span><span class="ctl" style="font-size:12px;color:var(--text-3)">1.0.0 · <span style="color:var(--accent-deep);font-weight:600">检查更新</span></span></div>
+          <div class="set-row"><span class="lab"><b>开源</b><small>MIT License</small></span>
+            <span class="ctl"><button class="btn btn--ghost btn--sm" type="button"><svg class="ic" aria-hidden="true"><use href="#i-ext"/></svg>查看源码</button></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 清空数据二次确认 -->
+    <div class="mini">
+      <div class="mini-head"><span>危险操作 · 二次确认</span><span class="no">Danger confirm</span></div>
+      <div class="mini-center">
+        <div class="modal" style="width:340px">
+          <div style="display:flex;gap:12px;align-items:flex-start;padding-top:4px">
+            <span style="width:38px;height:38px;border-radius:50%;background:var(--danger-soft);display:inline-flex;align-items:center;justify-content:center;color:var(--danger-text);flex:none">
+              <svg class="ic ic-20" aria-hidden="true"><use href="#i-alert"/></svg>
+            </span>
+            <div>
+              <h3 style="margin:0 0 4px;font-size:15px;font-weight:650">清空所有数据？</h3>
+              <p style="margin:0;font-size:12.5px;color:var(--text-2);line-height:1.6">将删除 <b class="num">128</b> 篇文章与 <b class="num">6</b> 个订阅源（含已收藏），此操作不可恢复。</p>
+            </div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn btn--ghost btn--sm" type="button">取消</button>
+            <button class="btn btn--danger btn--sm" type="button"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg>确认清空</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 分离窗口三栏 -->
+    <div class="mini span2">
+      <div class="mini-head"><span>分离窗口 · 三栏 1200×800（62% 缩放展示）</span><span class="no">Detached / 3-column</span></div>
+      <div class="scale">
+        <div class="app--wide" aria-label="分离窗口布局示意">
+          <aside class="sidebar" aria-hidden="true">
+            <div class="sb-scroll">
+              <div>
+                <div class="brand-row"><span class="brand-name">AiRSS</span><span class="badge">AI 驱动</span></div>
+                <p class="brand-sub">智能 RSS 阅读器</p>
+              </div>
+              <div class="field field--search sb-search">
+                <svg class="ic ic-14"><use href="#i-search"/></svg>
+                <input type="text" placeholder="搜索文章…" tabindex="-1">
+              </div>
+              <div class="stats">
+                <div class="stat"><span class="stat-num num">128</span><span class="stat-label">所有文章</span></div>
+                <div class="stat"><span class="stat-num num">12</span><span class="stat-label">未读</span></div>
+                <div class="stat"><span class="stat-num num">6</span><span class="stat-label">收藏</span></div>
+              </div>
+              <div class="sb-section">
+                <div class="sb-section-head"><span>订阅源</span><span class="icon-btn icon-btn--accent" style="width:24px;height:24px"><svg class="ic ic-14"><use href="#i-plus"/></svg></span></div>
+                <ul class="feed-list">
+                  <li><span class="feed-item"><span class="fi-text"><span class="fi-name">阮一峰的网络日志</span><span class="fi-sub">ruanyifeng.com</span></span><span class="fi-count num">4</span></span></li>
+                  <li><span class="feed-item"><span class="fi-text"><span class="fi-name">少数派</span><span class="fi-sub">sspai.com</span></span><span class="fi-count num">5</span></span></li>
+                  <li><span class="feed-item"><span class="fi-text"><span class="fi-name">V2EX · 分享创造</span><span class="fi-sub">v2ex.com</span></span><span class="fi-count num">2</span></span></li>
+                  <li><span class="feed-item"><span class="fi-text"><span class="fi-name">Hacker News</span><span class="fi-sub">news.ycombinator.com</span></span><span class="fi-count num">1</span></span></li>
+                </ul>
+              </div>
+              <div class="sb-section">
+                <div class="sb-section-head"><span>分类</span></div>
+                <ul class="cat-list">
+                  <li><span class="cat-item is-selected">全部 <span class="cat-count num">128</span></span></li>
+                  <li><span class="cat-item">技术 <span class="cat-count num">58</span></span></li>
+                  <li><span class="cat-item">资讯 <span class="cat-count num">40</span></span></li>
+                  <li><span class="cat-item">默认 <span class="cat-count num">30</span></span></li>
+                </ul>
+              </div>
+            </div>
+            <div class="sb-footer">
+              <span class="btn btn--muted btn--sm"><svg class="ic"><use href="#i-upload"/></svg><span>导入 OPML</span></span>
+              <span class="btn btn--muted btn--sm"><svg class="ic"><use href="#i-settings"/></svg><span>设置</span></span>
+              <span class="btn btn--muted btn--sm sb-toggle" title="折叠侧栏"><svg class="ic"><use href="#i-chev-l"/></svg></span>
+            </div>
+          </aside>
+
+          <div class="col-list">
+            <header class="toolbar">
+              <div class="tb-left">
+                <h2 class="tb-title" style="font-size:14px">所有文章</h2>
+                <span class="icon-btn" style="width:28px;height:28px"><svg class="ic ic-14"><use href="#i-refresh"/></svg></span>
+                <span class="btn btn--ghost btn--sm" style="cursor:default"><svg class="ic"><use href="#i-done"/></svg>全部已读</span>
+              </div>
+              <div class="tb-right">
+                <span class="dd-btn" style="height:28px;font-size:12px"><svg class="ic ic-13"><use href="#i-sort"/></svg>相关性</span>
+              </div>
+            </header>
+            <div class="feed-scroll" style="padding:10px">
+              <div class="list" style="gap:2px">
+                <span class="row is-unread is-current"><span class="dot"></span><span class="row-title">科技爱好者周刊（第 310 期）：记录每周值得分享的科技内容</span><span class="row-time num">18 小时前</span></span>
+                <span class="row is-unread"><span class="dot"></span><span class="row-title">「核聚变发电，还要等多久？」</span><span class="row-time num">20 小时前</span></span>
+                <span class="row"><span class="dot"></span><span class="row-title">写了一个把网页转成 Markdown 的爬虫，顺便聊聊正文提取的几种思路</span><span class="row-time num">2 天前</span></span>
+                <span class="row"><span class="dot"></span><span class="row-title">分享创造：我做了一个完全离线的划词翻译插件</span><span class="row-time num">3 天前</span></span>
+                <span class="row"><span class="dot"></span><span class="row-title">Android 16 将引入桌面模式；Firefox 修复零日漏洞</span><span class="row-time num">3 天前</span></span>
+                <span class="row"><span class="dot"></span><span class="row-title">如何用一台二手小主机搭建家庭 NAS</span><span class="row-time num">5 天前</span></span>
+                <span class="row"><span class="dot"></span><span class="row-title">航天器为什么都要进行热真空试验？</span><span class="row-time num">6 天前</span></span>
+                <span class="row"><span class="dot"></span><span class="row-title">一种用 Rust 重写的终端文件管理器</span><span class="row-time num">1 周前</span></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-reader">
+            <div class="reader-top">
+              <span class="btn btn--ghost btn--sm" style="cursor:default"><svg class="ic"><use href="#i-settings"/></svg>显示选项</span>
+            </div>
+            <div class="reader-scroll">
+              <article class="reader-article" style="padding-top:20px">
+                <h1 class="reader-title">科技爱好者周刊（第 310 期）：记录每周值得分享的科技内容</h1>
+                <div class="reader-meta">
+                  <span class="src">阮一峰的网络日志</span><span class="sep">·</span>
+                  <span class="num">18 小时前</span><span class="sep">·</span>
+                  <span class="read-time"><svg class="ic ic-13"><use href="#i-clock"/></svg><span class="num">9 分钟</span></span>
+                  <span class="origin"><svg class="ic ic-13"><use href="#i-ext"/></svg>原文</span>
+                </div>
+                <div class="reader-body">
+                  <p>这里记录每周值得分享的科技内容，周五发布。本杂志开源，欢迎投稿，或提交 issue 推荐你自己的项目。</p>
+                  <p>本期话题：国产开源模型生态的一周动态。三个团队先后放出了权重和推理代码，长上下文与工具调用的评测已经卷到没有区分度，下一阶段的差异点大概率在数据质量与工程稳定性上。</p>
+                  <h2>一、工具</h2>
+                  <p><code>md2web</code>——把网页正文转成 Markdown 的命令行工具：内置列表页规则，支持站点级配置文件；正文页采用 DOM 特征打分。</p>
+                  <blockquote>一点感想：正文提取这件事，readability 算法解决了八成问题，剩下两成是各站的脏数据。工程上别追求通用解，规则文件比模型便宜。</blockquote>
+                  <h2>二、新闻</h2>
+                  <p>Android 16 将正式引入桌面模式；Firefox 发布 128.1 紧急更新，修复一个已被在野利用的零日漏洞。</p>
+                </div>
+              </article>
+            </div>
+            <footer class="reader-bar">
+              <span class="btn btn--ghost btn--sm is-on" style="cursor:default"><svg class="ic"><use href="#i-check"/></svg>已读</span>
+              <span class="btn btn--ghost btn--sm" style="cursor:default"><svg class="ic"><use href="#i-bookmark"/></svg>收藏</span>
+              <span class="spacer"></span>
+              <span class="btn btn--ghost btn--sm" style="cursor:default"><svg class="ic"><use href="#i-copy"/></svg>复制链接</span>
+              <span class="btn btn--secondary btn--sm" style="cursor:default"><svg class="ic"><use href="#i-ext"/></svg>浏览器打开</span>
+            </footer>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+</main>
+
+<footer class="doc-footer">
+  <div class="legend" id="legend">
+    <span class="sw"><i class="sw--bg-app"></i><b>bg-app</b><code data-l="#F9F6F1" data-d="#171412">#F9F6F1</code></span>
+    <span class="sw"><i class="sw--bg-panel"></i><b>bg-panel</b><code data-l="#FFFFFF" data-d="#201C19">#FFFFFF</code></span>
+    <span class="sw"><i class="sw--accent"></i><b>accent</b><code data-l="#F97316" data-d="#FB923C">#F97316</code></span>
+    <span class="sw"><i class="sw--accent-strong"></i><b>accent-strong</b><code data-l="#EA580C" data-d="#FB923C">#EA580C</code></span>
+    <span class="sw"><i class="sw--accent-deep"></i><b>accent-deep</b><code data-l="#C2410C" data-d="#FDBA74">#C2410C</code></span>
+    <span class="sw"><i class="sw--selected"></i><b>selected</b><code data-l="#FCEFE3" data-d="#35261A">#FCEFE3</code></span>
+    <span class="sw"><i class="sw--text1"></i><b>text-1</b><code data-l="#292524" data-d="#F2EDE4">#292524</code></span>
+    <span class="sw"><i class="sw--text2"></i><b>text-2</b><code data-l="#57534E" data-d="#B8B0A4">#57534E</code></span>
+    <span class="sw"><i class="sw--danger"></i><b>danger</b><code data-l="#DC2626" data-d="#DC2626">#DC2626</code></span>
+  </div>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+
+  var html = document.documentElement;
+  var app = $('#app'), content = $('#content'), toastEl = $('#toast');
+  var reader = $('#reader'), readerBack = $('#readerBack');
+  var cardsBox = $('#cardsBox'), listBox = $('#listBox');
+  var vtGrid = $('#vtGrid'), vtList = $('#vtList');
+  var sortDD = $('#sortDD'), sortBtn = $('#sortBtn'), sortMenu = $('#sortMenu'), sortLabel = $('#sortLabel');
+  var toastTimer = null, lastFocus = null;
+
+  /* ---------- 主题 ---------- */
+  var themeBtn = $('#themeToggle');
+  function setTheme(t) {
+    html.setAttribute('data-theme', t);
+    var dark = t === 'dark';
+    themeBtn.setAttribute('aria-pressed', dark);
+    themeBtn.querySelector('use').setAttribute('href', dark ? '#i-sun' : '#i-moon');
+    themeBtn.querySelector('span').textContent = dark ? '浅色' : '深色';
+    $$('#legend code').forEach(function (c) { c.textContent = dark ? c.getAttribute('data-d') : c.getAttribute('data-l'); });
+  }
+  themeBtn.addEventListener('click', function () {
+    setTheme(html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  });
+
+  /* ---------- toast ---------- */
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, 2600);
+  }
+
+  /* ---------- 视图切换 ---------- */
+  function setView(v) {
+    var grid = v === 'grid';
+    cardsBox.hidden = !grid; listBox.hidden = grid;
+    vtGrid.classList.toggle('is-active', grid); vtList.classList.toggle('is-active', !grid);
+    vtGrid.setAttribute('aria-pressed', grid); vtList.setAttribute('aria-pressed', !grid);
+  }
+  vtGrid.addEventListener('click', function () { setView('grid'); });
+  vtList.addEventListener('click', function () { setView('list'); });
+
+  /* ---------- 排序下拉 ---------- */
+  function closeSort() { sortMenu.hidden = true; sortDD.classList.remove('is-open'); sortBtn.setAttribute('aria-expanded', 'false'); }
+  sortBtn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    var open = sortMenu.hidden;
+    closeSort();
+    if (open) {
+      sortMenu.hidden = false; sortDD.classList.add('is-open'); sortBtn.setAttribute('aria-expanded', 'true');
+    }
+  });
+  $$('#sortMenu .dd-item').forEach(function (item) {
+    item.addEventListener('click', function () {
+      $$('#sortMenu .dd-item').forEach(function (i) { i.classList.remove('is-on'); i.setAttribute('aria-selected', 'false'); });
+      item.classList.add('is-on'); item.setAttribute('aria-selected', 'true');
+      sortLabel.textContent = item.textContent.trim();
+      closeSort();
+      toast('排序已切换：' + sortLabel.textContent);
+    });
+  });
+  document.addEventListener('click', function (e) { if (!sortDD.contains(e.target)) closeSort(); });
+
+  /* ---------- 阅读面板 ---------- */
+  function openReader() {
+    lastFocus = document.activeElement;
+    reader.hidden = false;
+    requestAnimationFrame(function () { requestAnimationFrame(function () { reader.classList.add('in'); reader.classList.remove('out'); }); });
+    readerBack.focus();
+  }
+  function closeReader() {
+    reader.classList.remove('in'); reader.classList.add('out');
+    setTimeout(function () { reader.hidden = true; }, 200);
+    if (lastFocus) { lastFocus.focus(); lastFocus = null; }
+  }
+  readerBack.addEventListener('click', closeReader);
+  document.addEventListener('click', function (e) {
+    if (e.target.closest('button, a, input, .dd-menu, .act-btn')) return;
+    var t = e.target.closest('[data-open]');
+    if (t) {
+      if (t.classList.contains('is-unread')) t.classList.remove('is-unread');
+      openReader();
+    }
+  });
+  /* 卡片 / 列表行为 div[tabindex=0]，补 Enter / Space 打开（j/k 由正式实现接管，见 design-system.md §8） */
+  document.addEventListener('keydown', function (e) {
+    if ((e.key === 'Enter' || e.key === ' ') && !e.target.closest('button, a, input, .act-btn')) {
+      var t = e.target.closest('[data-open]');
+      if (t) { e.preventDefault(); openReader(); }
+    }
+  });
+
+  /* ---------- Esc 逐级返回 ---------- */
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    if (!sortMenu.hidden) { closeSort(); return; }
+    if (!reader.hidden) { closeReader(); }
+  });
+
+  /* ---------- 刷新 ---------- */
+  var refreshBtn = $('#refreshBtn');
+  refreshBtn.addEventListener('click', function () {
+    if (content.classList.contains('is-refreshing')) return;
+    content.classList.add('is-refreshing');
+    setTimeout(function () {
+      content.classList.remove('is-refreshing');
+      toast('已同步 · 更新 6 篇文章');
+    }, 2200);
+  });
+
+  /* ---------- 全部已读（演示未读双通道淡出） ---------- */
+  $('#markAllBtn').addEventListener('click', function () {
+    var n = $('#statUnread').textContent;
+    $$('.card.is-unread, .row.is-unread').forEach(function (el) { el.classList.remove('is-unread'); });
+    $$('.fi-count, .cat-count').forEach(function (el) { el.textContent = '0'; });
+    $('#statUnread').textContent = '0';
+    toast('已将 ' + n + ' 篇文章标记为已读');
+  });
+
+  /* ---------- 收藏 ---------- */
+  $$('.js-star').forEach(function (b) {
+    b.addEventListener('click', function (e) { e.stopPropagation(); b.classList.toggle('is-on'); });
+  });
+
+  /* ---------- 字号 4 档 ---------- */
+  var sizes = [14, 16, 18, 22], fsIdx = 1;
+  var fsLabel = $('#fsLabel'), readerArticle = $('#readerArticle');
+  function renderFs() {
+    readerArticle.style.setProperty('--reading-fs', sizes[fsIdx] + 'px');
+    fsLabel.textContent = sizes[fsIdx];
+    $('#fsMinus').setAttribute('aria-disabled', fsIdx === 0);
+    $('#fsPlus').setAttribute('aria-disabled', fsIdx === sizes.length - 1);
+  }
+  $('#fsMinus').addEventListener('click', function () { if (fsIdx > 0) { fsIdx--; renderFs(); } });
+  $('#fsPlus').addEventListener('click', function () { if (fsIdx < sizes.length - 1) { fsIdx++; renderFs(); } });
+  renderFs();
+
+  /* ---------- 衬线切换 ---------- */
+  var serifBtn = $('#serifBtn');
+  serifBtn.addEventListener('click', function () {
+    var on = readerArticle.classList.toggle('is-serif');
+    serifBtn.setAttribute('aria-pressed', on);
+    serifBtn.classList.toggle('is-on', on);
+  });
+
+  /* ---------- 阅读底栏 ---------- */
+  var readToggle = $('#readToggle'), readToggleLabel = $('#readToggleLabel');
+  readToggle.addEventListener('click', function () {
+    var on = readToggle.classList.toggle('is-on');
+    readToggle.setAttribute('aria-pressed', on);
+    readToggleLabel.textContent = on ? '已读' : '标记未读';
+  });
+  var readerStar = $('#readerStar'), readerStarLabel = $('#readerStarLabel');
+  readerStar.addEventListener('click', function () {
+    var on = readerStar.classList.toggle('is-on');
+    readerStar.setAttribute('aria-pressed', on);
+    readerStarLabel.textContent = on ? '已收藏' : '收藏';
+    toast(on ? '已加入收藏' : '已取消收藏');
+  });
+  $('#copyBtn').addEventListener('click', function () { toast('链接已复制到剪贴板'); });
+
+  /* ---------- 侧栏折叠 ---------- */
+  var sbToggle = $('#sbToggle');
+  sbToggle.addEventListener('click', function () {
+    var collapsed = app.classList.toggle('is-collapsed');
+    sbToggle.setAttribute('aria-expanded', !collapsed);
+    sbToggle.setAttribute('aria-label', collapsed ? '展开侧栏' : '折叠侧栏');
+    sbToggle.querySelector('use').setAttribute('href', collapsed ? '#i-chev-r' : '#i-chev-l');
+  });
+})();
+</script>
+</body>
+</html>

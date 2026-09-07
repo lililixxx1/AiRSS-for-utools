@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="referrer" content="no-referrer" />
+    <!-- 只约束图片来源（http 明文图与内联 data 图拦截）；其余加载策略不做 file:// 兼容性冒险 -->
+    <meta http-equiv="Content-Security-Policy" content="img-src https: data:" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AiRSS</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

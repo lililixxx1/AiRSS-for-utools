@@ -1,0 +1,16 @@
+{
+  "name": "airss-preload",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "AiRSS preload（uTools 规范：源码直供不打包；版本锁定为 Node16/CJS 兼容）",
+  "dependencies": {
+    "@mozilla/readability": "~0.6.0",
+    "fast-xml-parser": "^4.3.0",
+    "iconv-lite": "^0.6.3",
+    "linkedom": "0.18.12",
+    "p-limit": "^3.1.0",
+    "rss-parser": "^3.13.0",
+    "sanitize-html": "~2.11.0"
+  }
+}

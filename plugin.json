@@ -1,0 +1,28 @@
+{
+  "main": "dist/index.html",
+  "preload": "preload/index.js",
+  "logo": "logo.png",
+  "pluginSetting": {
+    "single": true,
+    "height": 620
+  },
+  "features": [
+    {
+      "code": "airss",
+      "explain": "AiRSS 智能订阅阅读器",
+      "mainPush": true,
+      "cmds": ["AiRSS", "rss", "订阅", "阅读"]
+    },
+    {
+      "code": "add_feed",
+      "explain": "订阅到 AiRSS",
+      "cmds": [
+        {
+          "type": "regex",
+          "label": "订阅到 AiRSS",
+          "match": "/^https?:\\/\\/[^\\s/$.?#][^\\s]*$|^[a-z0-9][-a-z0-9]{0,62}(\\.[a-z0-9][-a-z0-9]{0,62}){1,10}(:[0-9]{1,5})?(\\/[^\\s#?]*)?$/i"
+        }
+      ]
+    }
+  ]
+}

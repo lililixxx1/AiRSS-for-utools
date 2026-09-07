@@ -1,0 +1,113 @@
+/**
+ * base.css — 全局基础样式与通用小件（按钮/骨架/工具类），组件私有样式在各自 SFC 内。
+ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #app { height: 100%; overflow: hidden; }
+
+body {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--text-1);
+  background: var(--bg-panel);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* 中文不用斜体；数字等宽防跳动 */
+i, em { font-style: normal; }
+.num { font-variant-numeric: tabular-nums; }
+
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* ---------- 按钮四变体（design-system C1） ---------- */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 32px; padding: 0 12px; border-radius: var(--r-md);
+  font-size: 13px; font-weight: 500; font-family: inherit;
+  cursor: pointer; border: 1px solid transparent; white-space: nowrap;
+  transition: background var(--t-fast) var(--ease-out);
+}
+.btn:disabled { cursor: default; opacity: 0.55; }
+.btn-primary { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn-primary:not(:disabled):hover { background: var(--accent-hover); }
+.btn-primary:not(:disabled):active { background: var(--accent-active); }
+.btn-secondary { background: var(--bg-panel); border-color: var(--border-strong); color: var(--text-2); }
+.btn-secondary:not(:disabled):hover { background: var(--bg-card-hover); color: var(--text-1); }
+.btn-ghost { background: transparent; color: var(--text-2); }
+.btn-ghost:not(:disabled):hover { background: var(--bg-card-hover); color: var(--text-1); }
+.btn-ghost.is-on { background: var(--bg-selected); color: var(--accent-deep); }
+.btn-danger-outline { background: transparent; border-color: var(--danger); color: var(--danger-text); }
+.btn-danger-outline:not(:disabled):hover { background: var(--danger-soft); }
+.btn-danger { background: var(--danger); color: #fff; font-weight: 600; }
+.btn-danger:not(:disabled):hover { filter: brightness(1.08); }
+.btn-sm { height: 28px; padding: 0 10px; font-size: 12px; }
+
+/* 图标按钮 */
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: var(--r-md);
+  color: var(--text-2); background: transparent; border: none; cursor: pointer;
+  transition: background var(--t-fast) var(--ease-out);
+}
+.icon-btn:hover { background: var(--bg-card-hover); color: var(--text-1); }
+.icon-btn:active { background: var(--bg-active); }
+.icon-btn.lg { width: 32px; height: 32px; }
+.icon-btn.is-on { color: var(--accent-deep); }
+
+/* ---------- 输入框（C2） ---------- */
+.input {
+  height: 36px; padding: 0 12px; border-radius: var(--r-md);
+  border: 1px solid var(--border-strong); background: var(--bg-panel);
+  color: var(--text-1); font-size: 13px; font-family: inherit; width: 100%;
+  transition: border var(--t-fast) var(--ease-out), box-shadow var(--t-fast) var(--ease-out);
+}
+.input::placeholder { color: var(--text-3); }
+.input:focus { border-color: transparent; box-shadow: 0 0 0 2px var(--focus-ring); outline: none; }
+
+/* ---------- 骨架（§4.8） ---------- */
+@keyframes skel-move { from { background-position: -200% 0; } to { background-position: 200% 0; } }
+.skel {
+  background: linear-gradient(90deg, var(--skel-a) 25%, var(--skel-b) 50%, var(--skel-a) 75%);
+  background-size: 200% 100%;
+  animation: skel-move var(--t-skel);
+  border-radius: var(--r-sm);
+}
+
+/* ---------- 徽章（C7） ---------- */
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px; border-radius: var(--r-full);
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+}
+.badge-accent { background: var(--accent); color: var(--accent-ink); }
+.badge-muted { background: var(--bg-hover); color: var(--text-2); }
+
+/* ---------- 单行/两行截断 ---------- */
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* ---------- 键帽 ---------- */
+.kbd {
+  display: inline-flex; align-items: center; height: 18px; padding: 0 5px;
+  border-radius: var(--r-sm); background: var(--bg-hover);
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-2);
+}
+
+/* 动效纪律（design-system §9）
+   注意必须 transition-property:none 而不是只压 duration：property 默认 all，
+   只改 duration 会把所有布局属性（含 .app 的 grid-template-columns）也送进过渡管线，
+   撞 Chromium 网格轨道过渡不刷新 bug——减少动画开启的机器上侧栏折叠布局会楔死在 280px
+   （2026-09 浏览器实测回归发现）。 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-property: none !important;
+  }
+}

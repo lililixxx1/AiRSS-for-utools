@@ -1,0 +1,16 @@
+# 依赖（双包结构：根目录与 preload/ 各一套，模式匹配任意层级）
+node_modules/
+
+# 构建产物
+dist/
+
+# 工具产物 / 临时数据
+out/
+.v2c/
+.video_agent/
+scripts/spike-tmp/
+
+# 系统杂项
+.DS_Store
+Thumbs.db
+*.log
