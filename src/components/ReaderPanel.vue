@@ -508,7 +508,7 @@ const fontLabels = ["14", "16", "18", "22"];
   background: var(--bg-panel); display: flex; flex-direction: column;
   animation: reader-in var(--t-slow) var(--ease-out);
 }
-.reader.detached { position: relative; z-index: auto; animation: none; border-left: 1px solid var(--border); }
+.reader.detached { position: relative; z-index: auto; animation: none; border-left: 1px solid var(--border); flex: 1; min-height: 0; }
 @keyframes reader-in { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
 
 .reader-top {
@@ -526,7 +526,7 @@ const fontLabels = ["14", "16", "18", "22"];
 .fs-btn:disabled { color: var(--text-disabled); cursor: default; }
 .fs-cur { font-size: 12px; color: var(--text-3); padding: 0 2px; }
 
-.reader-scroll { flex: 1; overflow-y: auto; }
+.reader-scroll { flex: 1; min-height: 0; overflow-y: auto; }
 /* 流式行宽：块级元素天然不超容器宽（窄面板自然收窄），仅设 75em 上限；
    em 基准=阅读字号（§533）。勿写 min(100% - …)：Chromium 对 max-width 内 min() 的百分比分支解析异常 */
 .reader-article { font-size: var(--reading-fs, 16px); max-width: 75em; margin-inline: auto; padding: 24px 24px 48px; }

@@ -311,7 +311,7 @@ const collapsed = computed(() => settings.sidebarCollapsed);
 <style scoped>
 .sidebar {
   width: 280px;
-  height: 100%;
+  /* 不写 height:100%：grid 子项靠默认 align-self:stretch 填满定高轨道（App.vue .main-col 注释同源，宿主百分比解析坑） */
   background: var(--bg-app);
   display: flex;
   flex-direction: column;

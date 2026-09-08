@@ -316,6 +316,11 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 .app {
   height: 100%;
   display: grid;
+  /* 行轨道显式定高：不写则隐式 auto 行在部分 Chromium（uTools 宿主）下被内容顶穿——
+     2026-09-08 实机：宿主最大化后视口被压到 244px，auto 行随侧栏内容长到 8167px，
+     footer 与 ⋯ 按钮全部出画（纯浏览器 Chromium 不复现）。minmax(0,1fr) 保证行高
+     恒等于容器高、侧栏内部滚动，不依赖 auto 行的解析差异 */
+  grid-template-rows: minmax(0, 1fr);
   /* 轨道跟随侧栏折叠状态（否则内容列停在 280px 处，中间露出空白）。
      注意：不要给 grid-template-columns 加 transition——逐帧轨道重排会拖死渲染线程 */
   grid-template-columns: 280px 1fr;
@@ -330,11 +335,14 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 .app.detached.sb-collapsed {
   grid-template-columns: 64px minmax(360px, 400px) 1fr;
 }
-.main-col { position: relative; min-width: 0; height: 100%; overflow: hidden; }
-.reader-col { position: relative; min-width: 440px; height: 100%; background: var(--bg-panel); }
+/* grid 子项不写 height:100%：靠默认 align-self:stretch 填满 minmax(0,1fr) 定高轨道。
+   2026-09-08 实机：宿主 Chromium 对 grid 子项百分比高度的解析会回落 auto（内容高），
+   正文滚动容器被撑成整文高度、永不溢出 → 滚轮无效；stretch 对内容免疫，勿改回百分比 */
+.main-col { position: relative; min-width: 0; overflow: hidden; }
+.reader-col { position: relative; min-width: 440px; background: var(--bg-panel); display: flex; flex-direction: column; }
 
 .reader-placeholder {
-  height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
   color: var(--text-3); font-size: 26px;
 }
 .reader-placeholder p { font-size: 13px; }
