@@ -33,7 +33,13 @@ export const useSettingsStore = defineStore("settings", {
     set<K extends keyof Settings>(key: K, value: Settings[K]) {
       (this as any)[key] = value;
       const out: Record<string, unknown> = {};
-      for (const k of Object.keys(DEFAULT_SETTINGS)) out[k] = (this as any)[k];
+      for (const k of Object.keys(DEFAULT_SETTINGS)) {
+        const v = (this as any)[k];
+        // Pinia state 取出的数组是 reactive Proxy，utools IPC 结构化克隆不支持
+        // （2026-09-07 实机：dbStorage.setItem 抛 "An object could not be cloned"，
+        //  宿主内所有设置写入失败，且抛错吞掉调用方后续语句——如 AI 开关的 preload 双写）
+        out[k] = Array.isArray(v) ? [...v] : v;
+      }
       utools.dbStorage.setItem(KEY, out);
     },
   },
