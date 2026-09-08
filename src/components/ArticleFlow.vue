@@ -62,6 +62,9 @@ const SORTS: { key: "newest" | "oldest" | "unread"; label: string }[] = [
 ];
 const sortLabel = computed(() => SORTS.find((s) => s.key === settings.orderBy)?.label || "最新发布");
 
+/** 分离窗列表列仅 360–400px：工具栏降为图标态（文字进 title/aria-label），防挤压折行 */
+const compact = computed(() => ui.detached);
+
 /** 空态判定（muted-empty 先于 all-read：静音清空视图时不得谎称"全部读完"） */
 const emptyKind = computed<null | "first-run" | "no-result" | "category-empty" | "all-read" | "muted-empty" | null>(() => {
   if (!data.loaded) return null;
@@ -81,13 +84,20 @@ const emptyKind = computed<null | "first-run" | "no-result" | "category-empty" |
     <!-- 刷新进度条（不确定态位移） -->
     <div class="content-progress" v-if="data.refreshing" role="status" aria-label="刷新中"></div>
 
-    <header class="toolbar">
+    <header class="toolbar" :class="{ compact }">
       <div class="tb-left">
         <h1 class="tb-title ellipsis">{{ viewTitle }}</h1>
         <button class="icon-btn lg" :class="{ spin: data.refreshing }" aria-label="刷新" :disabled="data.refreshing" @click="data.refreshDue(true)">
           <I.refresh />
         </button>
-        <button class="btn btn-ghost btn-sm" @click="data.markAllRead()"><I.doneAll />全部已读</button>
+        <button
+          class="btn btn-ghost btn-sm"
+          :aria-label="compact ? '全部已读' : undefined"
+          :title="compact ? '全部已读' : undefined"
+          @click="data.markAllRead()"
+        >
+          <I.doneAll /><span v-show="!compact">全部已读</span>
+        </button>
         <span class="tb-progress num" v-if="data.refreshing && data.progress.total">{{ data.progress.done }}/{{ data.progress.total }}</span>
       </div>
       <div class="tb-right">
@@ -104,7 +114,8 @@ const emptyKind = computed<null | "first-run" | "no-result" | "category-empty" |
           @click="data.mutePaused = !data.mutePaused"
         >
           <I.volumeX />
-          <span class="num">{{ data.mutePaused ? `过滤已暂停 ${data.mutedInView}` : `已静音 ${data.mutedInView} 篇` }}</span>
+          <span class="num" v-if="compact">{{ data.mutedInView }}</span>
+          <span class="num" v-else>{{ data.mutePaused ? `过滤已暂停 ${data.mutedInView}` : `已静音 ${data.mutedInView} 篇` }}</span>
         </button>
         <!-- 视图切换 -->
         <div class="view-switch" role="group" aria-label="视图切换">
@@ -113,8 +124,14 @@ const emptyKind = computed<null | "first-run" | "no-result" | "category-empty" |
         </div>
         <!-- 排序下拉 -->
         <div class="sort-dd">
-          <button class="dd-btn" :aria-expanded="sortOpen" @click="sortOpen = !sortOpen">
-            <I.sort /><span>{{ sortLabel }}</span><I.chevronDown />
+          <button
+            class="dd-btn"
+            :aria-expanded="sortOpen"
+            :aria-label="compact ? `排序：${sortLabel}` : undefined"
+            :title="compact ? `排序：${sortLabel}` : undefined"
+            @click="sortOpen = !sortOpen"
+          >
+            <I.sort /><span v-show="!compact">{{ sortLabel }}</span><I.chevronDown />
           </button>
           <div class="dd-menu" v-if="sortOpen" role="listbox">
             <button
@@ -187,6 +204,9 @@ const emptyKind = computed<null | "first-run" | "no-result" | "category-empty" |
   padding: 0 16px; border-bottom: 1px solid var(--border); gap: 8px;
 }
 .tb-left, .tb-right { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* 分离窗窄列：间距收紧 2px，给标题腾出完整显示宽度 */
+.toolbar.compact { gap: 6px; }
+.toolbar.compact .tb-left, .toolbar.compact .tb-right { gap: 6px; }
 .tb-title { font-size: 16px; font-weight: 650; max-width: 200px; }
 .tb-progress { font-size: 12px; color: var(--text-3); }
 .spin svg { animation: spin 0.9s linear infinite; }
@@ -202,7 +222,7 @@ const emptyKind = computed<null | "first-run" | "no-result" | "category-empty" |
 .dd-btn {
   height: 32px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--r-md);
   background: var(--bg-panel); color: var(--text-2); font-family: inherit; font-size: 13px;
-  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap;
 }
 .dd-btn:hover { background: var(--bg-card-hover); color: var(--text-1); }
 .dd-menu {
