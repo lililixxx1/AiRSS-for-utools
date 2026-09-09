@@ -99,6 +99,12 @@ interface AirssServices {
       paras: { idx: number; head: string; text: string }[],
       opts?: { bypass?: boolean; onDelta?: (text: string) => void }
     ): Promise<{ ok: boolean; aborted?: boolean; aiTrans: import("./types/index").ArticleAiTrans | null; cached: boolean; error: string | null }>;
+    /** AI 目录生成（v1.4，PLAN-AI-TOC）：全量段落入，AI 划分章节起标题，产物落 item.aiToc（手动池；缓存为纯内容键） */
+    generateToc(
+      itemId: string,
+      paras: { idx: number; head: string; text: string }[],
+      opts?: { bypass?: boolean }
+    ): Promise<{ ok: boolean; aborted?: boolean; aiToc: import("./types/index").ArticleAiToc | null; cached: boolean; error: string | null }>;
     abort(): void;
     getStatus(): Promise<{
       ready: boolean;

@@ -39,6 +39,7 @@ python scripts/make-logo.py         # 重新生成 logo.png
 - **AI 缓存文档**：`ai:enrich:v2:{contentHashTrunc}:{titleHash}`（复合键，正文截 2000 字哈希；v2 = AI优化标题口径）、`ai:cls:v2:{titleHash}`、`ai:trans:v2:{sha12(joined)}`（纯内容键，feed 联播同文跨源复用），LRU 上限 5000；额度分池手动 120/日、后台 30/日（BYOK 豁免）存 dbStorage。
 - **渲染层设置新增字段**（如 `aiAutoCount` 0/1/3/5，默认 0=关闭自动、逐篇手动 AI 按钮，2026-09 由 1 改 0；v1.3 的 `muteWords/highlightWords: string[]` 默认 []）：只动 `src/types/index.ts` 的 Settings/DEFAULT_SETTINGS（settings.ts 按 DEFAULT 键集序列化，旧数据自动 merge 默认值）。
 - **v1.3 增量（全部可选字段，schemaVersion 仍为 3）**：`itemfullx:{item._id}` = 全文提取版（Readability 产物消毒 HTML，独立前缀**不写回 itemfull**——与 ingest 写序/contentHash 判重解耦；ingest 内容变化、retentionClean、deleteFeedCascade 均连带删它，T-09 同族）；`Feed.fullText?: boolean`（每源全文开关，默认关）；`Feed.order?: number`（拖拽排序：首次拖拽 initOrderOnce 批量赋值，此后新增源无 order 排末尾）；`ListFilter` kind 含 `'tag'`（定义在 data.ts）。searchContent 扫 itemfull+itemfullx 双前缀（同 id 去重）。
+- **v1.4 增量（AI 目录 + AI 工具面板，PLAN-AI-TOC；可选字段，schemaVersion 仍 3）**：`item.aiToc: { sections:[{title,idx,head}], at, model }`（AI 目录纯数据；head 由 preload `tocAnchorSections` 从**当前输入段落**按 idx 查表补全，AI 与缓存都不回写 head）；缓存 `ai:toc:v1:{sha12(joined)}` **纯内容键**——extract 全文替换不更新 contentHash，挂它会命中旧目录写入 head 全失配死数据（送审确认）；失效联动 T-09 族三处（db.js ingest / extract.js 落库2 / ReaderPanel maybeExtractFull 清内存并 resetToc，Teleport 面板不随 reader 卸载必须强关）；前端结构目录（h2-h4 ≥2 个）不落库打开现算；顶栏「AI」按钮 → AiToolsPanel 三区（目录/摘要/翻译；翻译按钮已从顶栏撤入面板，AiSummaryCard 仍在正文原位）。
 
 ## AI 管线要点（改 preload/services/ai.js 前必读）
 
@@ -50,6 +51,7 @@ python scripts/make-logo.py         # 重新生成 logo.png
 - **enrich 合并调用**（打开文章，手动池）：一次产出 titleZh/titleNorm/tags/summary，头部元信息 `【titleZh】…【titleNorm】…【tags】…` 解析失败整体降级纯摘要；**流式原子性（H2）**——产物仅完整结束才写缓存与 item，abort/失败全丢弃，abort 已产出文本仍计额度（F4）。
 - **轻量批**（刷新完成后 data.ts 自动触发，后台池，≤20 篇/批）：只发标题+首句，严格 JSON 回写；**回写前 get() 复验存在（H4），batch 永不覆盖 enrich 产物（T-21）**，按篇隔离失败。
 - prompt 正文用 `<<< >>>` 栅栏包裹（T-58，正文内指令样文本不构成指令）。
+- **AI 目录（v1.4）**：`generateToc` 手动池，输入全量段落（每段截 200 字、总量 10000 字，超出面板标「仅覆盖前 X%」= 末章 idx+1÷全文段数）；`[[idx]]标题` 行协议解析（同 idx 去重保首 + 升序）；渲染层门槛常量 `TOC_MIN_HEADINGS=2`/`TOC_MIN_CHARS=1500` 在 ReaderPanel——**collectParasAll 里 h1-h6 不受段落 ≥10 字文本门槛限制**（2026-09 回归实测：短标题被滤光导致前端目录整体为空）。
 - **v1.3 全文提取联动（extract.js，改它前必读 PLAN-V1.3 §1.1）**：enrich 正文获取走 `getItemFullBest`（优先 itemfullx 提取版）；Readability 输出按不可信输入处理、一律过 sanitizeContent，相对 URL 先在 DOM 层绝对化（否则 scheme 白名单剥光）；**翻译/提取并发弃写守卫**——translateItem 写回前查 `itemfullx.at > t0` 则弃（CONTENT_CHANGED，防复活已被提取层清理的旧译文，渲染层安静回「翻译」态）；空 body（bot 挑战 202+0 字节）/截断 TOO_LARGE/短于 600 字各有独立错误码，渲染层统一安静降级无 toast；日志只记 {itemId,status,ms,error}（URL/正文不入，T-11）。
 
 ## 设计规则（改 UI 前必读 docs/design-system.md）

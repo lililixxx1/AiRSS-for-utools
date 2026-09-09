@@ -841,6 +841,174 @@ async function translateItem(itemId, paras, opts = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// AI 目录（v1.4，PLAN-AI-TOC）：渲染层全量段落入，AI 只划分章节起标题；
+// 锚定 {idx+head} 同 aiTrans 口径，head 由输入侧补全（AI/缓存不回写，防编造）
+// ---------------------------------------------------------------------------
+
+const TOC_MAX_PARAS = 200; // 单次目录段上限（全文枚举口径，非翻译的 10 段）
+const TOC_PARA_CHARS = 200; // 每段送入截断
+const TOC_MAX_CHARS = 10000; // 单次输入总字符上限，超出截断（渲染层按 sections 末条 idx 现算覆盖率）
+
+function buildTocMessages(paras) {
+  const system =
+    "你是资深编辑。把栅栏内逐段编号的长文划分为 3~10 个连续章节，为每章拟一个客观的中文标题。\n" +
+    "输出格式：每章一行，以 [[起始段编号]] 开头，如 [[3]]章节标题。\n" +
+    "标题不超过 24 字、不带序号或表情；只输出这些行，不要解释、不要复述正文。";
+  const user = "<<<\n" + paras.map((p) => "[[" + p.idx + "]]" + p.text).join("\n") + "\n>>>";
+  return [
+    { role: "system", content: system },
+    { role: "user", content: user },
+  ];
+}
+
+/** 解析 [[idx]]标题 行协议；同 idx 保首条去重 + 升序（防 AI 重复输出致条目重复/覆盖率失真） */
+function parseTocOutput(text) {
+  const out = { sections: [], count: 0 };
+  const seen = new Set();
+  const re = /\[\[(\d+)\]\](.+)/g;
+  let m;
+  while ((m = re.exec(String(text || "")))) {
+    const idx = Number(m[1]);
+    const title = m[2].trim().slice(0, 24);
+    if (!Number.isInteger(idx) || idx < 0 || !title || seen.has(idx)) continue;
+    seen.add(idx);
+    out.sections.push({ title, idx });
+    out.count += 1;
+  }
+  out.sections.sort((a, b) => a.idx - b.idx);
+  return out;
+}
+
+/** 锚点过滤：head 从当前输入 paras 按 idx 查表补全（非数组下标取），越界/缺 head 条目丢弃——
+ *  与渲染层 jumpTo 的严格 head 比对同口径，坏锚点进不了 aiToc */
+function tocAnchorSections(paras, sections) {
+  const byIdx = new Map(paras.map((p) => [p.idx, p]));
+  const out = [];
+  for (const s of Array.isArray(sections) ? sections : []) {
+    const p = byIdx.get(Number(s && s.idx));
+    if (!p || !p.head) continue;
+    out.push({ title: String(s.title || "").slice(0, 24), idx: p.idx, head: String(p.head).slice(0, 20) });
+  }
+  return out;
+}
+
+/** 目录回写 item.aiToc（H4 get 复验同 applyTrans；纯数据产物，无 HTML） */
+async function applyToc(itemDoc, paras, sections, model) {
+  const fresh = await db().get(itemDoc._id);
+  if (!fresh) return null;
+  const out = tocAnchorSections(paras, sections);
+  if (!out.length) return fresh;
+  fresh.aiToc = { sections: out, at: Date.now(), model };
+  const saved = await dbSvc.putRetry(fresh);
+  return saved || fresh;
+}
+
+/**
+ * AI 目录生成（v1.4，PLAN-AI-TOC · 手动池）。
+ * @param {string} itemId
+ * @param {Array<{idx:number, head:string, text:string}>} paras 渲染层全量段落（collectParasAll 产物）
+ * @param {{bypass?:boolean}} [opts]
+ * @returns {Promise<{ok:boolean, aborted?:boolean, aiToc:object|null, cached:boolean, error:string|null}>}
+ */
+async function generateToc(itemId, paras, opts = {}) {
+  const claim = ++callClaim; // 发起序：单飞纪律（渲染层发起前 abort；被超越即自弃）
+  const startedAt = Date.now(); // 提取竞态守卫基线（B-1）
+  const cfg = getConfig();
+  if (!cfg.enabled) return { ok: false, aiToc: null, cached: false, error: "AI_DISABLED" };
+
+  const item = await db().get(itemId);
+  if (!item) return { ok: false, aiToc: null, cached: false, error: "NOT_FOUND" };
+
+  // item 层命中：已有目录且非强制重生成
+  if (!opts.bypass && item.aiToc && Array.isArray(item.aiToc.sections) && item.aiToc.sections.length) {
+    return { ok: true, aiToc: item.aiToc, cached: true, error: null };
+  }
+
+  const list = (Array.isArray(paras) ? paras : [])
+    .filter((p) => p && Number.isInteger(p.idx) && typeof p.head === "string" && typeof p.text === "string" && p.text.trim())
+    .slice(0, TOC_MAX_PARAS);
+  if (!list.length) return { ok: false, aiToc: null, cached: false, error: "NO_PARAS" };
+
+  // 输入限幅：每段 ≤TOC_PARA_CHARS、总量 ≤TOC_MAX_CHARS（渲染层已截过，此处兜底）
+  const trimmed = [];
+  let total = 0;
+  for (const p of list) {
+    if (total >= TOC_MAX_CHARS) break;
+    trimmed.push({ idx: p.idx, head: p.head, text: p.text.slice(0, Math.min(TOC_PARA_CHARS, TOC_MAX_CHARS - total)) });
+    total += trimmed[trimmed.length - 1].text.length;
+  }
+  const joined = trimmed.map((p) => p.text).join("");
+
+  // 纯内容键（不含 itemId/contentHash）：feed 联播同文跨源命中；全文提取替换正文不更新
+  // contentHash（extract 落库只删 aiTrans），挂 contentHash 会命中旧目录写入死数据（送审确认）
+  const cacheId = "ai:toc:v1:" + dbSvc.sha12(joined);
+  if (!opts.bypass) {
+    const cached = await db().get(cacheId);
+    if (cached && cached.result && Array.isArray(cached.result.sections) && cached.result.sections.length) {
+      if (await supersededByExtract(itemId, startedAt)) {
+        logger.info("ai.toc", "提取已替换正文，缓存产物弃写", { itemId });
+        return { ok: false, aiToc: null, cached: false, error: "CONTENT_CHANGED" };
+      }
+      const saved = await applyToc(item, trimmed, cached.result.sections, cached.result.model);
+      if (saved && saved.aiToc) {
+        logger.info("ai.toc", "复合缓存命中并回写", { itemId, sections: saved.aiToc.sections.length });
+        return { ok: true, aiToc: saved.aiToc, cached: true, error: null };
+      }
+      // 缓存锚点与当前段集配不上：当 miss 走新调用
+    }
+  }
+
+  const q = quotaCheck("manual", cfg);
+  if (!q.ok) {
+    logger.warn("ai.toc", "手动池额度耗尽，跳过", { itemId, used: loadQuota().manual });
+    return { ok: false, aiToc: null, cached: false, error: q.error };
+  }
+
+  const messages = buildTocMessages(trimmed);
+  logger.info("ai.toc", "发起目录生成", { itemId, engine: cfg.engine, paras: trimmed.length, inputChars: joined.length, bypass: !!opts.bypass });
+
+  let produced = false;
+  const call = await callEngine(messages, {
+    cfg,
+    claim,
+    stream: true, // 照翻译：流式 abort/超时语义验证充分
+    onDelta: () => { produced = true; }, // F4 计额口径：引擎吐过字，失败/abort 也计
+  });
+
+  if (!call.ok) {
+    if (produced) countCall("manual", cfg);
+    if (call.aborted) {
+      logger.info("ai.toc", "调用被中止，产物全弃", { itemId, produced });
+      return { ok: false, aborted: true, aiToc: null, cached: false, error: "ABORTED" };
+    }
+    logger.warn("ai.toc", "调用失败", { itemId, error: call.error, produced });
+    return { ok: false, aiToc: null, cached: false, error: call.error };
+  }
+
+  countCall("manual", cfg);
+  const parsed = parseTocOutput(call.content);
+  logger.info("ai.toc", "解析目录", { itemId, rawChars: call.content.length, sections: parsed.count });
+  if (!parsed.count) {
+    return { ok: false, aiToc: null, cached: false, error: "BAD_TOC_OUTPUT" };
+  }
+  const anchored = tocAnchorSections(trimmed, parsed.sections);
+  if (!anchored.length) {
+    return { ok: false, aiToc: null, cached: false, error: "BAD_TOC_OUTPUT" }; // AI 输出的 idx 全部越界，锚点不可用
+  }
+  if (await supersededByExtract(itemId, startedAt)) {
+    // B-1：生成期间全文提取落库，正文已换——产物弃写（额度已计，同 abort 已产出计额口径）
+    logger.info("ai.toc", "提取已替换正文，产物弃写", { itemId, sections: parsed.count });
+    return { ok: false, aiToc: null, cached: false, error: "CONTENT_CHANGED" };
+  }
+  // 缓存载荷不含 head：命中路径由 applyToc 从当前输入段落重补（跨源同文 DOM 差异免疫）
+  await cachePut(cacheId, { sections: anchored.map(({ title, idx }) => ({ title, idx })), model: modelLabelFor(cfg) });
+  const saved = await applyToc(item, trimmed, parsed.sections, modelLabelFor(cfg));
+  await cacheTrim();
+  logger.info("ai.toc", "回写完成", { itemId, wrote: !!(saved && saved.aiToc) });
+  return { ok: true, aiToc: saved && saved.aiToc ? saved.aiToc : null, cached: false, error: null };
+}
+
+// ---------------------------------------------------------------------------
 // 状态查询（设置页）
 // ---------------------------------------------------------------------------
 
@@ -871,11 +1039,12 @@ module.exports = {
   enrich,
   batchEnrich,
   translateItem,
+  generateToc,
   abort,
   getStatus,
   getConfig,
   saveConfig,
   setByokKey,
   hasByokKey,
-  __test: { parseEnrichOutput, byokEndpoint, firstSentence, pickDisplayTitle, applyAi, markError, loadQuota, countCall, quotaCheck, cachePut, buildEnrichMessages, buildBatchMessages, parseTransOutput, applyTrans, cjkRatio, buildTransMessages, DEFAULT_CONFIG, BATCH_MAX, TRUNC_CHARS, setEngineTimeout: (ms) => (engineTimeoutMs = ms) },
+  __test: { parseEnrichOutput, byokEndpoint, firstSentence, pickDisplayTitle, applyAi, markError, loadQuota, countCall, quotaCheck, cachePut, buildEnrichMessages, buildBatchMessages, parseTransOutput, applyTrans, cjkRatio, buildTransMessages, DEFAULT_CONFIG, BATCH_MAX, TRUNC_CHARS, setEngineTimeout: (ms) => (engineTimeoutMs = ms), buildTocMessages, parseTocOutput, applyToc, tocAnchorSections, TOC_MAX_PARAS, TOC_PARA_CHARS, TOC_MAX_CHARS },
 };

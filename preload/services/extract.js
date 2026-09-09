@@ -132,11 +132,12 @@ async function runOnce(itemId) {
   const saved = await dbSvc.putRetry({ _id: "itemfullx:" + itemId, content: clean, at: Date.now(), src: "readability" });
   if (!saved) return err("STORE_FAILED");
 
-  // 落库 2：连带失效旧译文（保留 ai.summary/tags——基于摘要文本生成，仍成立）。
+  // 落库 2：连带失效旧译文与旧目录（保留 ai.summary/tags——基于摘要文本生成，仍成立）。
   // get 复验再写，避免覆盖期间并发的已读/星标变更。
   const fresh = await dbSvc.getDoc(itemId);
-  if (fresh && fresh.aiTrans) {
+  if (fresh && (fresh.aiTrans || fresh.aiToc)) {
     delete fresh.aiTrans;
+    delete fresh.aiToc; // 目录锚点对替换前正文，head 必失配（T-09 同族，PLAN-AI-TOC）
     await dbSvc.putRetry(fresh);
   }
 

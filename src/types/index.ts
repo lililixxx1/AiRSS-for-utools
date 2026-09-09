@@ -37,6 +37,14 @@ export interface ArticleAiTrans {
   model: string;
 }
 
+/** AI 目录产物（v1.4，PLAN-AI-TOC）：纯数据，无 HTML；sections 与全文段落按 idx+head 对位（同 aiTrans 口径）。
+ *  head 由 preload 从输入段落补全（AI 不回写）；正文 contentHash 变化 / itemfullx 全文替换连带失效（T-09 同族） */
+export interface ArticleAiToc {
+  sections: { title: string; idx: number; head: string }[]; // title ≤24 字
+  at: number;
+  model: string;
+}
+
 export interface Item {
   _id: string;
   _rev?: string;
@@ -56,6 +64,7 @@ export interface Item {
   aiStatus: "none" | "done" | "error" | string;
   ai?: ArticleAi; // 二期 AI 产物（schemaVersion 3；旧数据缺失按 undefined 读）
   aiTrans?: ArticleAiTrans; // AI 段落翻译（v1.2；正文 contentHash 变化即随 ai 一并失效）
+  aiToc?: ArticleAiToc; // AI 目录（v1.4；失效联动同 aiTrans，前端提取目录不落库）
 }
 
 export type ThemeMode = "auto" | "light" | "dark";

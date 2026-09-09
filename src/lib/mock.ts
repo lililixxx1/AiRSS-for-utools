@@ -276,6 +276,26 @@ export function installMock() {
         window.airss.log.info("ai.translate", "译文回写（mock）", { itemId, paras: aiTrans.paras.length });
         return { ok: true, aiTrans, cached: false, error: null };
       },
+      /** AI 目录（v1.4）：按段落数均分 3~5 节 mock 目录，同 translateItem 形态回写 localStorage */
+      async generateToc(itemId: string, paras: { idx: number; head: string; text: string }[], opts: { bypass?: boolean } = {}) {
+        const d = load();
+        const it: any = d.items.find((x) => x._id === itemId);
+        if (!it) return { ok: false, aiToc: null, cached: false, error: "NOT_FOUND" };
+        if (!opts.bypass && it.aiToc) return { ok: true, aiToc: it.aiToc, cached: true, error: null };
+        if (!paras.length) return { ok: false, aiToc: null, cached: false, error: "NO_PARAS" };
+        await sleep(600);
+        const n = Math.min(5, Math.max(3, Math.ceil(paras.length / 8)));
+        const step = Math.max(1, Math.floor(paras.length / n));
+        const sections: any[] = [];
+        for (let i = 0; i < paras.length && sections.length < n; i += step) {
+          sections.push({ title: `第${sections.length + 1}部分 · mock 目录`, idx: paras[i].idx, head: paras[i].head });
+        }
+        const aiToc = { sections, at: Date.now(), model: "mock" };
+        it.aiToc = aiToc;
+        save(d);
+        window.airss.log.info("ai.toc", "目录回写（mock）", { itemId, sections: sections.length });
+        return { ok: true, aiToc, cached: false, error: null };
+      },
       abort() {},
       async getStatus() {
         return { ready: false, engine: mockAiCfg.engine, models: [], byokReady: true, quota: { manual: 0, manualMax: 120, bg: 0, bgMax: 30 }, exempt: mockAiCfg.engine === "byok" };

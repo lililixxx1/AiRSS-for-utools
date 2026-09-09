@@ -150,6 +150,7 @@ async function ingestFeed(feedDoc, parsedItems, feedMeta) {
       // AI 产物随内容失效（T-09）：标题/正文已变，缓存键换新哈希，按新内容重新生成
       delete existing.ai;
       delete existing.aiTrans; // 段落译文同步失效（v1.2，同 T-09 纪律）
+      delete existing.aiToc; // AI 目录同步失效（v1.4，锚点对旧正文 head 必失配，T-09 同族）
       existing.aiStatus = "none";
       // 提取版全文同步失效（T-09 同族）：先删后写——宁可丢一次提取下次重抓，
       // 也不让旧正文配新 contentHash（remove 不存在文档与 itemfull 同款容忍）

@@ -70,6 +70,8 @@ window.airss = {
     batchEnrich: aiSvc.batchEnrich,
     /** AI 段落翻译（v1.2）：渲染层切块纯文本入，译文落 item.aiTrans（流式） */
     translateItem: aiSvc.translateItem,
+    /** AI 目录生成（v1.4，PLAN-AI-TOC）：全量段落入，AI 划分章节起标题，产物落 item.aiToc（手动池） */
+    generateToc: aiSvc.generateToc,
     /** 中断进行中的 AI 调用（离开阅读面板/插件被杀） */
     abort: aiSvc.abort,
     /** 设置页：引擎可用性/模型列表/今日额度 */

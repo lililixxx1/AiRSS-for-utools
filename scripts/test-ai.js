@@ -2,7 +2,8 @@
  * test-ai.js — AI 管线直测（Node 可跑，mock utools.ai / db / dbStorage / dbCryptoStorage）
  * 覆盖：enrich 流式落库/缓存命中/bypass、abort 原子性（H2）与已产出计额（F4）、
  *       失败降级 error 且旧产物保留、额度分池耗尽、轻量批 JSON 回写与 H4/T-21 守则、
- *       ingest 内容变化清 AI 字段（T-09）、BYOK 端点归一、配额跨日重置
+ *       ingest 内容变化清 AI 字段（T-09）、BYOK 端点归一、配额跨日重置、
+ *       AI 目录（v1.4）：行协议解析/去重升序/锚点补全/纯内容缓存跨源/B-1 弃写/限幅/T-09 连带清
  * 用法：node scripts/test-ai.js
  */
 const assert = require("assert");
@@ -424,6 +425,113 @@ const today = () => {
     const r6 = await aiSvc.translateItem(item4._id, paras, {});
     ok("同文跨源缓存命中回写", r6.ok && r6.cached === true && r6.aiTrans && r6.aiTrans.paras.length === 2 && fake.calls === callsBefore);
     ok("缓存命中不计额度", T.loadQuota().manual === 3);
+  }
+
+  console.log("[ai] AI 目录 generateToc（v1.4，PLAN-AI-TOC）");
+  {
+    const { db } = makeMockDb();
+    global.utools.db = db;
+    global.utools.dbStorage.removeItem("airss:ai-quota");
+    const item = { _id: "item:toc:1", feedKey: "feed:toc", title: "长文标题", titleDisplay: "长文标题", aiStatus: "none" };
+    await db.promises.put(item);
+    const paras = [
+      { idx: 0, head: "开头段讲述了背景与动机", text: "开头段讲述了背景与动机，交代来龙去脉。" },
+      { idx: 1, head: "第二段展开核心问题", text: "第二段展开核心问题，提出三个假设。" },
+      { idx: 2, head: "第三段给出实验数据", text: "第三段给出实验数据，样本量一万人。" },
+      { idx: 3, head: "结尾段总结全文", text: "结尾段总结全文并展望后续工作方向。" },
+    ];
+
+    // 单元：[[idx]]标题 行协议解析
+    const parsed = T.parseTocOutput("[[0]]背景与动机\n[[2]]实验与数据\n[[2]]重复条目应丢弃\n[[9]]越界章\n说明行不匹配\n[[3]]结论与展望");
+    ok("行协议解析（说明行自然丢弃，升序排列）", parsed.count === 4 && parsed.sections[0].idx === 0 && parsed.sections[1].title === "实验与数据" && parsed.sections[2].idx === 3 && parsed.sections[3].idx === 9);
+    ok("重复 idx 保首条去重", !parsed.sections.some((s) => s.title === "重复条目应丢弃"));
+    ok("超长标题截 24 字", T.parseTocOutput("[[0]]" + "长".repeat(40)).sections[0].title.length === 24);
+    ok("空/无标记输出 count=0", T.parseTocOutput("没有任何标记").count === 0 && T.parseTocOutput("").count === 0);
+    ok("输出按 idx 升序", T.parseTocOutput("[[3]]c\n[[1]]a\n[[2]]b").sections.map((s) => s.idx).join() === "1,2,3");
+
+    // 单元：锚点过滤（head 按 idx 查表补全、越界丢弃）
+    const anchored = T.tocAnchorSections(paras, parsed.sections);
+    ok("head 从当前输入段落补全（≤20 字）", anchored[0].head === "开头段讲述了背景与动机" && anchored.every((s) => s.head.length <= 20));
+    ok("idx 越界条目丢弃", !anchored.some((s) => s.idx === 9) && anchored.length === 3);
+
+    // 门控
+    fake.calls = 0;
+    ok("item 不存在 NOT_FOUND", !((await aiSvc.generateToc("item:toc:none", paras, {})).ok) && fake.calls === 0);
+    ok("空 paras 返回 NO_PARAS", (await aiSvc.generateToc(item._id, [], {})).error === "NO_PARAS" && fake.calls === 0);
+
+    // 全链路：生成成功
+    fake.script = ["[[0]]背景与动机\n", "[[2]]实验与数据\n[[3]]结论与展望"];
+    const r = await aiSvc.generateToc(item._id, paras, {});
+    ok("目录生成成功", r.ok && r.aiToc && r.aiToc.sections.length === 3 && !r.cached);
+    const after = await db.promises.get(item._id);
+    ok("aiToc 落库（head=段首 20 字）", after.aiToc.sections[1].head === paras[2].head && after.aiToc.model.length > 0);
+    ok("手动池计 1 次", T.loadQuota().manual === 1);
+    const tocCache = await db.promises.allDocs("ai:toc:");
+    ok("目录缓存已写且不含 head（命中路径重补）", tocCache.length === 1 && tocCache[0]._id.startsWith("ai:toc:v1:") && tocCache[0].result.sections.every((s) => s.head === undefined));
+
+    const calls = fake.calls;
+    const r2 = await aiSvc.generateToc(item._id, paras, {});
+    ok("item 层已有目录直返（cached）", r2.ok && r2.cached === true && fake.calls === calls);
+
+    // 纯内容键缓存：同文跨源命中（feed 联播场景）
+    const item2 = { _id: "item:toc:2", feedKey: "feed:other", title: "联播同文", titleDisplay: "联播同文", aiStatus: "none" };
+    await db.promises.put(item2);
+    const r3 = await aiSvc.generateToc(item2._id, paras, {});
+    ok("同文跨源缓存命中并重补 head", r3.ok && r3.cached === true && r3.aiToc.sections.length === 3 && r3.aiToc.sections[0].head === paras[0].head && fake.calls === calls);
+    ok("缓存命中不计额度", T.loadQuota().manual === 1);
+
+    // 坏输出整体降级（负路径用 paras2 换内容，避开与上文同文的纯内容缓存命中）
+    const paras2 = paras.map((p) => ({ idx: p.idx, head: p.head, text: p.text + " different content here." }));
+    const item3 = { _id: "item:toc:3", feedKey: "feed:toc", title: "坏输出", titleDisplay: "坏输出", aiStatus: "none" };
+    await db.promises.put(item3);
+    fake.script = ["没有任何标记的输出"];
+    const r4 = await aiSvc.generateToc(item3._id, paras2, {});
+    ok("无标记输出 BAD_TOC_OUTPUT 不回写", !r4.ok && r4.error === "BAD_TOC_OUTPUT" && !(await db.promises.get("item:toc:3")).aiToc);
+    fake.script = ["[[99]]只有一个越界章"];
+    const r4b = await aiSvc.generateToc(item3._id, paras2, {});
+    ok("idx 全越界同样 BAD_TOC_OUTPUT（锚点不可用）", !r4b.ok && r4b.error === "BAD_TOC_OUTPUT" && fake.calls === calls + 2);
+
+    // abort 全弃 + 已产出计额（F4 同构）
+    const item4 = { _id: "item:toc:4", feedKey: "feed:toc", title: "中止", titleDisplay: "中止", aiStatus: "none" };
+    await db.promises.put(item4);
+    fake.script = ["[[0]]开头产出", "[[3]]不会到达的末章"];
+    const p5 = aiSvc.generateToc(item4._id, paras2, {});
+    await sleep(12); // 等第一块流出
+    aiSvc.abort();
+    const r5 = await p5;
+    ok("中止全弃（H2）且已产出计额（F4）", !r5.ok && r5.aborted === true && !(await db.promises.get("item:toc:4")).aiToc && T.loadQuota().manual === 4);
+
+    // T-09 同族：ingest contentHash 变化连带清 aiToc
+    const feed9 = { _id: "feed:toc9", url: "https://e/toc", title: "T9", unreadCount: 0, lastFetchedAt: null };
+    await dbSvc.ingestFeed(feed9, [{ guid: "g9", link: "https://e/9", title: "标题", contentHtml: "<p>一</p>", contentHash: "h1", summaryText: "一", cover: null, pubTs: 9 }], {});
+    const it9 = (await dbSvc.itemsOfFeed("feed:toc9"))[0];
+    await T.applyToc(it9, paras, parsed.sections, "m");
+    ok("目录已写（回写前 get 复验通过）", (await db.promises.get(it9._id)).aiToc.sections.length === 3);
+    await dbSvc.ingestFeed(feed9, [{ guid: "g9", link: "https://e/9", title: "标题", contentHtml: "<p>一改</p>", contentHash: "h2", summaryText: "一改", cover: null, pubTs: 9 }], {});
+    ok("contentHash 变化 → aiToc 连带清空（T-09 同族）", (await db.promises.get(it9._id)).aiToc === undefined);
+
+    // B-1：生成期间全文提取落库 → 产物弃写（额度已计）
+    const item5 = { _id: "item:toc:5", feedKey: "feed:toc", title: "竞态", titleDisplay: "竞态", aiStatus: "none" };
+    await db.promises.put(item5);
+    fake.script = ["[[0]]开头", "[[3]]结尾章"];
+    const p6 = aiSvc.generateToc(item5._id, paras2, {});
+    await sleep(6); // 调用进行中，模拟提取层此刻落库
+    await db.promises.put({ _id: "itemfullx:" + item5._id, content: "<p>新全文</p>", at: Date.now(), src: "readability" });
+    const r6 = await p6;
+    ok("提取替换正文产物弃写（B-1，额度已计）", !r6.ok && r6.error === "CONTENT_CHANGED" && !(await db.promises.get("item:toc:5")).aiToc && T.loadQuota().manual === 5);
+
+    // 限幅：200 字/段 × 60 段 = 12000 字 > TOC_MAX_CHARS → 只收纳前 ~50 段，越界锚点章丢弃
+    const item6 = { _id: "item:toc:6", feedKey: "feed:toc", title: "限幅", titleDisplay: "限幅", aiStatus: "none" };
+    await db.promises.put(item6);
+    const big = Array.from({ length: 60 }, (_, i) => ({ idx: i, head: "第" + i + "段标题占位文本", text: "x".repeat(200) }));
+    fake.script = ["[[0]]第一章\n[[59]]末章"];
+    const r7 = await aiSvc.generateToc(item6._id, big, {});
+    ok("TOC_MAX_CHARS 截断：覆盖外锚点章丢弃", r7.ok && r7.aiToc.sections.length === 1 && r7.aiToc.sections[0].idx === 0);
+
+    // bypass：跳过 item 层与缓存直调引擎
+    fake.script = ["[[1]]第二章改"];
+    const r8 = await aiSvc.generateToc(item._id, paras, { bypass: true });
+    ok("bypass 跳过两层缓存直调引擎", r8.ok && !r8.cached && r8.aiToc.sections.length === 1 && fake.calls === calls + 6);
   }
 
   console.log("[ai] 发起序双飞防御（阶段C：前奏中被超越的调用自弃）");

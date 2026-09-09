@@ -6,6 +6,7 @@ import { useUiStore } from "../stores/ui";
 import { saveReadPosition, loadReadPositions } from "../stores/theme";
 import { I } from "./icons";
 import AiSummaryCard from "./AiSummaryCard.vue";
+import AiToolsPanel from "./AiToolsPanel.vue";
 import { timeAgo } from "../lib/format";
 
 const data = useDataStore();
@@ -285,6 +286,147 @@ function resetTrans() {
   trShown.value = false;
 }
 
+// ---- AI 目录与 AI 工具面板（v1.4，PLAN-AI-TOC）：结构标题 ≥2 前端秒出；无结构长文 AI 手动生成 ----
+const TOC_MIN_HEADINGS = 2; // 结构标题达到此数走前端目录（不花额度）
+const TOC_MIN_CHARS = 1500; // 无结构正文达到此长度才提供 AI 生成
+
+const tocState = ref<"idle" | "loading" | "done">("idle"); // 失败由 toast 承担，不留挂死按钮态
+const tocHeadings = ref<{ title: string; idx: number; head: string }[]>([]); // 前端结构目录（h2-h4）
+const tocParasCount = ref(0); // 全文段落数（AI 目录覆盖率分母）
+const tocFullChars = ref(0); // 全文段落总字数（AI 门槛口径）
+const tocCurrentIdx = ref(-1); // 当前章（面板打开时算一次，不做持续跟踪）
+const aiPanelOpen = ref(false);
+const aiBtnRef = ref<HTMLElement | null>(null);
+let tocSeq = 0; // 过期响应守卫（同 aiSeq/trSeq）
+
+/** 全文段落枚举（目录锚点口径）：同 collectParas 切分，去掉 10 段/4000 字双上限——目录要覆盖全文 */
+function collectParasAll(): { el: HTMLElement; idx: number; head: string; text: string }[] {
+  const root = contentEl.value;
+  if (!root) return [];
+  const nodes = Array.from(root.querySelectorAll("p,h1,h2,h3,h4,h5,h6,li,blockquote")) as HTMLElement[];
+  const out: { el: HTMLElement; idx: number; head: string; text: string }[] = [];
+  for (const el of nodes) {
+    if (el.parentElement?.closest("p,h1,h2,h3,h4,h5,h6,li,blockquote")) continue;
+    const text = (el.innerText || "").replace(/\s+/g, " ").trim();
+    // 结构标题（h1-h6）不限字数——目录锚点必须收录短标题；其余文本块沿用翻译的 ≥10 字门槛
+    if (text.length < 10 && !/^H[1-6]$/.test(el.tagName)) continue;
+    out.push({ el, idx: out.length, head: text.slice(0, 20), text });
+  }
+  return out;
+}
+
+/** 目录元信息刷新（正文 DOM 就绪后调用）：结构标题 + 段落数/字数（门槛与覆盖率口径） */
+function refreshTocMeta() {
+  const all = collectParasAll();
+  tocParasCount.value = all.length;
+  tocFullChars.value = all.reduce((n, b) => n + b.text.length, 0);
+  tocHeadings.value = all
+    .filter((b) => /^H[234]$/.test(b.el.tagName))
+    .map((b) => ({ title: b.text.slice(0, 60), idx: b.idx, head: b.head }));
+}
+
+const tocFromHtml = computed(() => tocHeadings.value.length >= TOC_MIN_HEADINGS);
+/** 目录条目：结构标题足够 → 前端秒出；否则用 AI 目录（item.aiToc）；均无 → 面板出生成按钮或短文文案 */
+const tocEntries = computed(() => {
+  if (tocFromHtml.value) return tocHeadings.value.map((h) => ({ ...h, kind: "html" as const }));
+  return (item.value?.aiToc?.sections || []).map((s) => ({ ...s, kind: "ai" as const }));
+});
+const tocAiEligible = computed(() => !tocFromHtml.value && tocFullChars.value >= TOC_MIN_CHARS);
+/** AI 目录覆盖标注：末章 idx+1 ÷ 全文段数（输入截断时 <100；前端目录/全覆盖恒 100 不显示） */
+const tocCoverPercent = computed(() => {
+  const s = item.value?.aiToc?.sections;
+  if (tocFromHtml.value || !s?.length || !tocParasCount.value) return 100;
+  return Math.min(100, Math.round(((s[s.length - 1].idx + 1) / tocParasCount.value) * 100));
+});
+const aiBusyDot = computed(() => aiState.value === "loading" || trState.value === "loading" || tocState.value === "loading");
+const hasSummary = computed(() => !!item.value?.ai?.summary);
+
+/** 面板开合：打开时按滚动位置算一次当前章 */
+function toggleAiPanel() {
+  if (aiPanelOpen.value) {
+    aiPanelOpen.value = false;
+    return;
+  }
+  aiPanelOpen.value = true;
+  markCurrentSection(tocEntries.value);
+}
+
+/** 当前章：段落顶越过「滚动位置+30% 视口」锚线的最后一章（entries 升序，rect 差算 y 免 offsetParent 歧义） */
+function markCurrentSection(sections: { idx: number }[]) {
+  const sc = scrollEl.value;
+  if (!sc || !sections.length) return;
+  const scTop = sc.getBoundingClientRect().top;
+  const anchorLine = sc.scrollTop + sc.clientHeight * 0.3;
+  const blocks = collectParasAll();
+  let cur = -1;
+  for (const s of sections) {
+    const b = blocks[s.idx];
+    if (b && b.el.getBoundingClientRect().top - scTop + sc.scrollTop <= anchorLine) cur = s.idx;
+  }
+  tocCurrentIdx.value = cur;
+}
+
+/** AI 目录生成（手动池；单飞纪律：发起前回收在飞调用，杀掉在飞的摘要先打招呼） */
+async function runToc(bypass = false) {
+  const it = item.value;
+  if (!it) return;
+  if (aiState.value === "loading") ui.toast("已中断摘要生成");
+  window.airss.ai.abort();
+  const seq = ++tocSeq;
+  tocState.value = "loading";
+  const paras = collectParasAll().map((b) => ({ idx: b.idx, head: b.head, text: b.text.slice(0, 200) })); // 纯字面量数组，IPC 安全
+  try {
+    const res = await window.airss.ai.generateToc(it._id, paras, { bypass });
+    if (seq !== tocSeq) return; // 已切文/重开
+    if (res.ok && res.aiToc) {
+      it.aiToc = res.aiToc;
+      tocState.value = "done";
+      const i = data.items.findIndex((x) => x._id === it._id); // await 后按 _id 定位（refreshAll 可能重建数组）
+      if (i >= 0) data.items[i] = it;
+      return;
+    }
+    const back = it.aiToc?.sections?.length ? "done" : "idle";
+    tocState.value = back;
+    if (res.aborted || res.error === "ABORTED") return; // 被其他发起打断：正常节流，不弹假错（同翻译）
+    if (res.error === "QUOTA_EXHAUSTED") ui.toast("今日 AI 额度已用完", "error");
+    else if (res.error === "NO_PARAS") ui.toast("没有可生成目录的段落");
+    else if (res.error === "CONTENT_CHANGED") return; // 全文提取替换了正文：安静回生成态
+    else ui.toast("目录生成失败：" + (res.error || "AI_FAILED"), "error");
+  } catch (e: any) {
+    if (seq === tocSeq) {
+      tocState.value = it.aiToc?.sections?.length ? "done" : "idle";
+      ui.toast("目录生成失败：" + String(e?.message || e), "error");
+    }
+  }
+}
+
+/** 目录跳转：head 严格校验（同译文对位口径）；失配=正文已更新 → 失效提示回生成态，不留死按钮 */
+function jumpTo(idx: number, head: string) {
+  const b = collectParasAll()[idx];
+  if (!b || b.head !== head) {
+    if (item.value) item.value.aiToc = undefined;
+    tocState.value = "idle";
+    ui.toast("正文已更新，目录已失效");
+    return;
+  }
+  aiPanelOpen.value = false;
+  b.el.scrollIntoView({
+    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    block: "start",
+  });
+}
+
+/** 目录状态复位（切文/卸载/全文替换三路径共用；面板 Teleport 到 body 不随 reader 卸载，必须强关） */
+function resetToc() {
+  tocSeq += 1;
+  tocState.value = "idle";
+  tocHeadings.value = [];
+  tocParasCount.value = 0;
+  tocFullChars.value = 0;
+  tocCurrentIdx.value = -1;
+  aiPanelOpen.value = false;
+}
+
 /** 全文提取接线（PLAN-V1.3 A）：源开 fullText 才请求；先出摘要不阻塞，
  *  hit/fetched 替换正文并重跑图片懒加载；替换后不重放滚动恢复（onUpdated 按新
  *  比例继续保存）；各失败态安静保留原摘要（无 toast）。 */
@@ -294,9 +436,13 @@ async function maybeExtractFull(id: string) {
   if (ui.readerItemId !== id) return; // 快速切文守卫：迟到的旧文正文不得覆盖新文
   if ((r.status === "hit" || r.status === "fetched") && r.content) {
     html.value = r.content;
-    // 旧译文已被 preload 侧连带失效（T-09 同族），按钮回「翻译」态，可按新全文重译
+    // 旧译文/旧目录已被 preload 侧连带失效（T-09 同族），内存同步清理、回初始态，
+    // 可按新全文重译/重生成（渲染层不清则面板照列死目录、item 层假命中——送审必改）
+    if (item.value) item.value.aiToc = undefined;
     resetTrans();
+    resetToc();
     await nextTick();
+    refreshTocMeta();
     contentEl.value?.querySelectorAll("img").forEach((img) => {
       img.setAttribute("loading", "lazy");
       img.setAttribute("referrerpolicy", "no-referrer");
@@ -345,6 +491,7 @@ watch(
     }
     resetAiStream();
     resetTrans();
+    resetToc();
     if (!id) return;
     lastReaderId = id;
     // 位置快照必须先于 html="" ——重渲染链条上的 onUpdated 节流保存会在空正文阶段
@@ -373,6 +520,9 @@ watch(
       img.setAttribute("loading", "lazy");
       img.setAttribute("referrerpolicy", "no-referrer");
     });
+    // 目录：前端元信息现算 + item 层已有 AI 目录直接进 done 态
+    refreshTocMeta();
+    tocState.value = item.value?.aiToc?.sections?.length ? "done" : "idle";
     // 已有缓存的译文直接展示（v1.2：翻过的文章重进即见，不耗额度；随 AI 总开关门控）
     if (settings.aiEnabled && item.value?.aiTrans?.paras?.length) {
       trState.value = "done";
@@ -391,6 +541,7 @@ watch(
 
 onBeforeUnmount(() => {
   window.airss.ai.abort();
+  resetToc(); // 卸载兜底：父级 v-if 同周期卸载的 watcher 会被跳过，面板与目录状态必须自清
   cancelPosSave();
   // 卸载兜底：此刻 ui.readerItemId 可能已被置 null（关闭路径），用 lastReaderId
   if (lastReaderId && scrollEl.value) saveReadPosition(lastReaderId, ratioOf());
@@ -437,17 +588,15 @@ const fontLabels = ["14", "16", "18", "22"];
       </button>
       <div class="flex1"></div>
       <button
-        v-if="translatable"
+        ref="aiBtnRef"
         class="btn btn-ghost btn-sm"
-        :class="{ 'is-on': trShown }"
-        :disabled="trState === 'loading'"
-        :title="trState === 'error' ? '上次翻译失败，点击重试' : 'AI 段落翻译'"
-        @click="onTransBtn"
+        :class="{ 'is-on': aiPanelOpen }"
+        :title="aiBusyDot ? 'AI 工具（任务进行中…点击查看）' : 'AI 工具（目录 / 摘要 / 翻译）'"
+        aria-haspopup="dialog"
+        :aria-expanded="aiPanelOpen"
+        @click="toggleAiPanel"
       >
-        <I.languages />
-        <span v-if="trState === 'loading'" class="num">翻译中 {{ trProgress.done }}/{{ trProgress.total }}</span>
-        <span v-else-if="trState === 'done'">{{ trShown ? "收起译文" : "显示译文" }}</span>
-        <span v-else>翻译</span>
+        <I.sparkle /><span v-if="aiBusyDot" class="ai-dot" aria-hidden="true"></span>
       </button>
       <button class="btn btn-ghost btn-sm" :class="{ 'is-on': settings.serif }" @click="settings.set('serif', !settings.serif)">衬线</button>
       <div class="font-step" role="group" aria-label="正文字号">
@@ -469,7 +618,6 @@ const fontLabels = ["14", "16", "18", "22"];
           <span>·</span>
           <span class="ra-min"><I.clock />{{ readingMin }} 分钟</span>
           <span class="flex1"></span>
-          <button v-if="showAiBtn" class="btn btn-ghost btn-sm" @click="runEnrich()"><I.sparkle />AI 摘要</button>
           <button v-if="item.link" class="btn btn-ghost btn-sm" @click="openOriginal"><I.externalLink />原文</button>
         </div>
         <!-- AI 摘要卡：唯一视觉主角（design-system §6），失败降级不阻塞阅读 -->
@@ -499,6 +647,31 @@ const fontLabels = ["14", "16", "18", "22"];
       <button class="btn btn-ghost btn-sm" @click="copyLink"><I.copy />复制链接</button>
       <button class="btn btn-ghost btn-sm" @click="openOriginal"><I.externalLink />浏览器打开</button>
     </footer>
+
+    <!-- AI 工具面板：目录/摘要/翻译三区（Teleport 到 body，状态全由本组件透传） -->
+    <AiToolsPanel
+      :open="aiPanelOpen"
+      :trigger-el="aiBtnRef"
+      :ai-enabled="settings.aiEnabled"
+      :toc-entries="tocEntries"
+      :toc-from-html="tocFromHtml"
+      :toc-ai-eligible="tocAiEligible"
+      :toc-cover-percent="tocCoverPercent"
+      :toc-state="tocState"
+      :toc-current-idx="tocCurrentIdx"
+      :ai-state="aiState"
+      :has-summary="hasSummary"
+      :show-summary-btn="showAiBtn"
+      :translatable="translatable"
+      :tr-state="trState"
+      :tr-progress="trProgress"
+      :tr-shown="trShown"
+      @close="aiPanelOpen = false"
+      @generate-toc="runToc()"
+      @jump="jumpTo"
+      @run-enrich="runEnrich"
+      @trans-btn="onTransBtn"
+    />
   </section>
 </template>
 
@@ -524,6 +697,13 @@ const fontLabels = ["14", "16", "18", "22"];
 }
 .fs-btn:hover:not(:disabled) { background: var(--bg-card-hover); }
 .fs-btn:disabled { color: var(--text-disabled); cursor: default; }
+.ai-dot { /* AI 任务进行中指示（摘要/翻译/目录任一在飞） */
+  width: 6px; height: 6px; border-radius: var(--r-sm); margin-left: 4px;
+  background: var(--accent-strong); animation: ai-dot-pulse 1.1s var(--ease-out) infinite;
+}
+@keyframes ai-dot-pulse { 50% { opacity: 0.3; } }
+/* 目录跳转锚段：滚动定位时避开顶部区域（h2-h4 即前端目录条目所属块） */
+.ra-content :deep(h2), .ra-content :deep(h3), .ra-content :deep(h4) { scroll-margin-top: 12px; }
 .fs-cur { font-size: 12px; color: var(--text-3); padding: 0 2px; }
 
 .reader-scroll { flex: 1; min-height: 0; overflow-y: auto; }
