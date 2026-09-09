@@ -7,6 +7,7 @@ import { saveReadPosition, loadReadPositions } from "../stores/theme";
 import { I } from "./icons";
 import AiSummaryCard from "./AiSummaryCard.vue";
 import AiToolsPanel from "./AiToolsPanel.vue";
+import AiWheel from "./AiWheel.vue";
 import { timeAgo } from "../lib/format";
 
 const data = useDataStore();
@@ -296,7 +297,9 @@ const tocParasCount = ref(0); // 全文段落数（AI 目录覆盖率分母）
 const tocFullChars = ref(0); // 全文段落总字数（AI 门槛口径）
 const tocCurrentIdx = ref(-1); // 当前章（面板打开时算一次，不做持续跟踪）
 const aiPanelOpen = ref(false);
-const aiBtnRef = ref<HTMLElement | null>(null);
+const wheelRef = ref<InstanceType<typeof AiWheel> | null>(null);
+/** AiToolsPanel 触发钮：悬浮球元素（顶栏 AI 按钮已撤，轮盘是唯一快捷入口） */
+const wheelBall = computed(() => wheelRef.value?.ballEl ?? null);
 let tocSeq = 0; // 过期响应守卫（同 aiSeq/trSeq）
 
 /** 全文段落枚举（目录锚点口径）：同 collectParas 切分，去掉 10 段/4000 字双上限——目录要覆盖全文 */
@@ -341,14 +344,53 @@ const tocCoverPercent = computed(() => {
 const aiBusyDot = computed(() => aiState.value === "loading" || trState.value === "loading" || tocState.value === "loading");
 const hasSummary = computed(() => !!item.value?.ai?.summary);
 
-/** 面板开合：打开时按滚动位置算一次当前章 */
-function toggleAiPanel() {
-  if (aiPanelOpen.value) {
-    aiPanelOpen.value = false;
-    return;
-  }
+/** 面板打开：定位当前章（原顶栏按钮 toggleAiPanel 拆出；轮盘目录项与面板路径共用） */
+function openAiPanel() {
   aiPanelOpen.value = true;
   markCurrentSection(tocEntries.value);
+}
+
+/** ---- 悬浮轮盘点击语义（v1.5，PLAN-AI-WHEEL §1.4）：点击直达动作，详情态开面板 ---- */
+function onWheelSummary() {
+  if (!settings.aiEnabled) {
+    ui.toast("未开启 AI 增强（设置 → AI）");
+    return;
+  }
+  if (aiState.value === "loading") return;
+  if (aiState.value === "error") {
+    runEnrich(true);
+    return;
+  }
+  if (item.value?.ai?.summary) {
+    scrollEl.value?.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    return;
+  }
+  runEnrich();
+}
+
+function onWheelTrans() {
+  if (!settings.aiEnabled) {
+    ui.toast("未开启 AI 增强（设置 → AI）");
+    return;
+  }
+  if (trState.value === "loading") {
+    window.airss.ai.abort(); // 取消：runTranslate 的 ABORTED 分支自动恢复旧译文/回 idle（安静）
+    return;
+  }
+  onTransBtn();
+}
+
+async function onWheelToc() {
+  // AI 关/短文/已有/生成中一律开面板（文案、列表、进度各自呈现）；B1：AI 关不得进 runToc（tocAiEligible 不含 aiEnabled）
+  if (tocEntries.value.length || tocState.value === "loading" || !tocAiEligible.value || !settings.aiEnabled) {
+    openAiPanel();
+    return;
+  }
+  const it = item.value;
+  if (!it) return;
+  await runToc();
+  // 成功判定补当前文（tocSeq 已封切文竞态，此处口径显式化防跨文残留）
+  if (tocState.value === "done" && it.aiToc && it._id === ui.readerItemId) openAiPanel();
 }
 
 /** 当前章：段落顶越过「滚动位置+30% 视口」锚线的最后一章（entries 升序，rect 差算 y 免 offsetParent 歧义） */
@@ -425,6 +467,7 @@ function resetToc() {
   tocFullChars.value = 0;
   tocCurrentIdx.value = -1;
   aiPanelOpen.value = false;
+  wheelRef.value?.close(); // 轮盘同收：键盘切文时鼠标可停在热区不动（无 mousemove），防跨文残留（R11）
 }
 
 /** 全文提取接线（PLAN-V1.3 A）：源开 fullText 才请求；先出摘要不阻塞，
@@ -587,17 +630,7 @@ const fontLabels = ["14", "16", "18", "22"];
         <I.arrowLeft />返回<span class="kbd">⌫</span>
       </button>
       <div class="flex1"></div>
-      <button
-        ref="aiBtnRef"
-        class="btn btn-ghost btn-sm"
-        :class="{ 'is-on': aiPanelOpen }"
-        :title="aiBusyDot ? 'AI 工具（任务进行中…点击查看）' : 'AI 工具（目录 / 摘要 / 翻译）'"
-        aria-haspopup="dialog"
-        :aria-expanded="aiPanelOpen"
-        @click="toggleAiPanel"
-      >
-        <I.sparkle /><span v-if="aiBusyDot" class="ai-dot" aria-hidden="true"></span>
-      </button>
+      <!-- AI 入口已迁悬浮轮盘（v1.5，PLAN-AI-WHEEL）：顶栏按钮撤除 -->
       <button class="btn btn-ghost btn-sm" :class="{ 'is-on': settings.serif }" @click="settings.set('serif', !settings.serif)">衬线</button>
       <div class="font-step" role="group" aria-label="正文字号">
         <button class="fs-btn" :disabled="settings.fontLevel === 0" aria-label="减小字号" @click="settings.set('fontLevel', settings.fontLevel - 1 as 1)">A−</button>
@@ -648,10 +681,29 @@ const fontLabels = ["14", "16", "18", "22"];
       <button class="btn btn-ghost btn-sm" @click="openOriginal"><I.externalLink />浏览器打开</button>
     </footer>
 
-    <!-- AI 工具面板：目录/摘要/翻译三区（Teleport 到 body，状态全由本组件透传） -->
+    <!-- AI 悬浮轮盘（v1.5）：右下悬浮球，hover 展开摘要/翻译/目录，点击直达；详情态开下方面板 -->
+    <AiWheel
+      v-if="item"
+      ref="wheelRef"
+      :ai-enabled="settings.aiEnabled"
+      :summary-state="aiState"
+      :has-summary="hasSummary"
+      :translatable="translatable"
+      :tr-state="trState"
+      :toc-state="tocState"
+      :has-toc="tocEntries.length > 0"
+      :busy="aiBusyDot"
+      :panel-open="aiPanelOpen"
+      @summary="onWheelSummary"
+      @translate="onWheelTrans"
+      @toc="onWheelToc"
+      @close-panel="aiPanelOpen = false"
+    />
+
+    <!-- AI 工具面板：目录/摘要/翻译三区（Teleport 到 body，状态全由本组件透传；由轮盘目录项打开，底部触发向上翻转） -->
     <AiToolsPanel
       :open="aiPanelOpen"
-      :trigger-el="aiBtnRef"
+      :trigger-el="wheelBall"
       :ai-enabled="settings.aiEnabled"
       :toc-entries="tocEntries"
       :toc-from-html="tocFromHtml"
@@ -697,11 +749,7 @@ const fontLabels = ["14", "16", "18", "22"];
 }
 .fs-btn:hover:not(:disabled) { background: var(--bg-card-hover); }
 .fs-btn:disabled { color: var(--text-disabled); cursor: default; }
-.ai-dot { /* AI 任务进行中指示（摘要/翻译/目录任一在飞） */
-  width: 6px; height: 6px; border-radius: var(--r-sm); margin-left: 4px;
-  background: var(--accent-strong); animation: ai-dot-pulse 1.1s var(--ease-out) infinite;
-}
-@keyframes ai-dot-pulse { 50% { opacity: 0.3; } }
+/* AI 任务呼吸点已随顶栏按钮迁入 AiWheel 悬浮球（绝对定位版） */
 /* 目录跳转锚段：滚动定位时避开顶部区域（h2-h4 即前端目录条目所属块） */
 .ra-content :deep(h2), .ra-content :deep(h3), .ra-content :deep(h4) { scroll-margin-top: 12px; }
 .fs-cur { font-size: 12px; color: var(--text-3); padding: 0 2px; }

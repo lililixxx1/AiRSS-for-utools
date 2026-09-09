@@ -256,7 +256,7 @@
 
 **小窗 = 覆盖内容列（绝对定位 inset:0，z300，200ms ease-out 从 translateX(16px)+淡入）**
 
-- 顶栏 h52（粘性，白底 + 底边框）：`返回`（arrow-left + 文字 + kbd ⌫ 提示，幽灵按钮）｜右：`翻译`（languages 图标，v1.2，仅外文正文出现，loading 显 `n/m` 进度、done 显 `显示译文/收起译文`）、`衬线` 切换（文字按钮，激活态底 `--bg-selected` 字 `--accent-deep`）+ 字号步进器（`A−` / 当前 px / `A+`，三段拼合 r8，边界档 `aria-disabled` 并降透明）。
+- 顶栏 h52（粘性，白底 + 底边框）：`返回`（arrow-left + 文字 + kbd ⌫ 提示，幽灵按钮）｜右：`衬线` 切换（文字按钮，激活态底 `--bg-selected` 字 `--accent-deep`）+ 字号步进器（`A−` / 当前 px / `A+`，三段拼合 r8，边界档 `aria-disabled` 并降透明）。（v1.2 顶栏翻译按钮、v1.4 顶栏 AI 按钮先后迁出：AI 入口 = 阅读区右下悬浮轮盘，见 C19。）
 - 正文区滚动，文章容器 `font-size: var(--reading-fs, 16px); max-width: 75em; margin-inline: auto; padding: 24 24 48`（流式行宽，块级不超容器宽，仅设上限）：
   - 标题 22px/700/1.35 `--text-1`；
   - 元信息行（h32，与标题间距 12）：源名 13px/600 `--accent-deep` + `·` + 时间 12px `--text-3` + `·` + clock 图标 + 阅读时长 12px；行尾 `AI 摘要`（sparkle，v1.2：自动摘要关闭且无摘要时）+ `原文` 幽灵小按钮（external-link 图标，shellOpenExternal 打开）。
@@ -429,6 +429,19 @@
 - **搜索高亮（mark.hl）**：卡片/列表行标题内，`--accent-soft` 底 + `--accent-deep` 字，r2，padding 0 1；≤3 词、每词首个匹配；由 `highlightSegments` 纯函数切段后模板文本插值渲染（非 innerHTML）。
 - **搜索状态（工具栏右侧）**：`N 个结果`（12px num `--text-3`）；正文扫描中「正文中检索…」；超预算截断显「部分扫描」（title 悬浮说明已扫描篇数）。
 
+---
+
+### C19 AI 悬浮轮盘（AiWheel，v1.5 增补）
+
+- **背景**：AI 入口从阅读顶栏按钮（v1.4 AiToolsPanel 触发钮）迁为阅读区右下悬浮轮盘——hover 即达、点击直达动作，不打断阅读动线；顶栏 AI 按钮撤除。
+- **悬浮球**：44px 圆钮 absolute 于 `.reader`（right 20 / bottom 64，footer 上方不遮操作条），z 取 `--z-sticky`；`--bg-panel` + border-strong + shadow-1、sparkle 18px `--text-2`、常态 opacity 0.92，hover/展开加深（bg-card-hover + `--accent-deep` 字）；任一 AI 任务在飞显呼吸点（6px `--accent-strong`，1.1s 脉动，绝对定位球内右上）。不随正文滚动（不在 .reader-scroll 内）；detached 分离窗两种定位模式下均成立。
+- **轮盘几何**：三项 44px 圆钮沿**左上四分之一弧**展开（球贴右下角，朝右/朝下会出画）：摘要 -100°（-17,-91）/ 翻译 -135°（-65,-65）/ 目录 -170°（-90,-16），R=92px；相邻弦长 ≈55px 无重叠。展开动画只 transition transform/opacity（收起态聚球心 scale(.35) → 圆周 scale(1)，`--t-med` ease-out，错峰 0/20/40ms）；reduced-motion 全局瞬切天然合规，不碰布局轨道。
+- **热区模型**：容器 `pointer-events:none` 不挡正文（点击/选择穿透），仅球与展开态项 auto；open 期间挂 document mousemove——坐标在「球 rect 左/上各扩 120px」联合矩形内保活（连续区域，球→项任何直线路径无缝，无间隙误收起），移出即收；keydown 捕获 Esc 收起 + 焦点回球（hover 展开时焦点可能在 body，容器级监听收不到）。
+- **键盘（menu-button 惯例）**：球聚焦**不**自动展开（避免 mousedown-focus 与 click toggle 互搏），方向键/Enter/click 展开；容器 `role="menu"`、项 `role="menuitem"`、方向键环形导航；**收起态 `visibility:hidden` + `tabindex=-1` 双保险**——opacity+pointer-events 不把 button 移出 Tab 序，会留键盘盲焦点。焦点转移到项用 nextTick（微任务）：rAF 在后台/节流窗格被冻结，焦点会滞留球上（2026-09 回归实测修复）。
+- **项状态语汇**：进行中 = 外圈 2px accent 旋转环（inset -4）；已有产物 = 右上 6px `--accent-strong` 实心点；不可用（AI 关 / 中文正文翻译项）= opacity .45 + cursor:default。title 原生 tooltip（翻译 loading 态写「翻译中，点击取消」，让取消可发现）。
+- **点击语义**（直达动作，PLAN-AI-WHEEL §1.4）：摘要=生成 / 重试 / 已有则滚顶；翻译=开始 / loading 再点=取消（abort，runTranslate 的 ABORTED 分支自愈）/ 显隐译文；目录=开列表 / 无且可生成则生成后自动开面板 / AI 关与短文只开面板出文案（**AI 关不得触发生成**——tocAiEligible 不含 aiEnabled，撞 preload 硬门控会弹假错）。面板开着点球=先关面板再展开（AiToolsPanel onDocDown 豁免触发钮，须显式互斥）；面板+轮盘同开时 Esc 一次双闭。
+- **AiToolsPanel 联动**：triggerEl 换绑球元素；place() 增**向上翻转**（below<200 → bottom 定位，面板底贴球顶 6px，高度受限于上方空间）——球在视口底部，恒走翻转分支。
+
 
 ## 6. 交互态矩阵
 
@@ -487,7 +500,7 @@
 | `sun` / `moon` / `monitor` | 主题三态 | 16 |
 | `folder` | 分类空态 | 20/40 |
 | `inbox` | 首用空态备选 / 通知组 | 16/20 |
-| `languages` | 阅读面板 AI 翻译按钮（v1.2） | 16 |
+| `languages` | AI 轮盘翻译项（顶栏翻译按钮 v1.2→面板 v1.4→轮盘 v1.5） | 16 |
 
 > 图标全部内联 SVG（`src/components/icons.ts` 组件化），不引图标库、不用 emoji。线性 2px；`star-filled`、`bookmark-filled`、`radio-checked` 中心为 fill。
 

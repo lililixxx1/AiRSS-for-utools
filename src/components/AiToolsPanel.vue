@@ -3,10 +3,11 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { I } from "./icons";
 
 /**
- * AI 工具面板（v1.4，PLAN-AI-TOC · C17）：阅读顶栏「AI」按钮的浮层面板，收纳目录/摘要/翻译三区。
+ * AI 工具面板（v1.4，PLAN-AI-TOC · C17）：悬浮轮盘目录项的浮层面板，收纳目录/摘要/翻译三区。
  * 纯展示组件——状态与回调全部由 ReaderPanel 透传，自有状态仅定位。
  * Teleport 到 body + fixed（同 DropdownSelect 模式：原生弹层在 uTools 无边框窗内定位错位；
  * 面板不随 reader 卸载，切文/全文替换由调用方 resetToc 强关）。
+ * 触发钮是右下悬浮球（v1.5 轮盘）→ place() 向上翻转；上方空间足的未来触发点仍走向下分支。
  */
 const props = defineProps<{
   open: boolean;
@@ -39,19 +40,29 @@ const panelStyle = ref<Record<string, string>>({});
 
 const PANEL_W = 300;
 
-/** 右对齐触发钮、向下展开，视口内钳制（顶栏靠上无翻转必要，空间不足时压 maxHeight） */
+/** 右对齐触发钮展开，视口内钳制；下方空间不足（悬浮球在视口底部）向上翻转，高度受限于上方空间 */
 function place() {
   const el = props.triggerEl;
   if (!el) return;
   const r = el.getBoundingClientRect();
   const left = Math.min(Math.max(8, r.right - PANEL_W), Math.max(8, window.innerWidth - PANEL_W - 8));
   const below = window.innerHeight - r.bottom - 12;
-  panelStyle.value = {
-    left: left + "px",
-    top: r.bottom + 6 + "px",
-    width: PANEL_W + "px",
-    maxHeight: Math.max(180, Math.min(440, below)) + "px",
-  };
+  if (below >= 200) {
+    panelStyle.value = {
+      left: left + "px",
+      top: r.bottom + 6 + "px",
+      width: PANEL_W + "px",
+      maxHeight: Math.max(180, Math.min(440, below)) + "px",
+    };
+  } else {
+    // 向上翻转：面板底边贴触发钮顶 6px（panelStyle 每次全量替换，无 top 残留）
+    panelStyle.value = {
+      left: left + "px",
+      bottom: window.innerHeight - r.top + 6 + "px",
+      width: PANEL_W + "px",
+      maxHeight: Math.max(180, Math.min(440, r.top - 12)) + "px",
+    };
+  }
 }
 
 function onDocDown(e: MouseEvent) {
