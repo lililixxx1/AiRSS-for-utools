@@ -160,6 +160,20 @@ function claimGate(claim) {
   return true;
 }
 
+/** 空输出时 resolve 值的元信息：宿主若以 {error:…} 之类收场可直接看见病因。
+ *  T-11 纪律：只记类型/字段名/短错误串（≤120 字符）；字符串值只记长度，防正文片段入日志 */
+function resolveMeta(result) {
+  if (result == null) return String(result); // "undefined" / "null"
+  const t = typeof result;
+  if (t !== "object") return { type: t, len: String(result).length };
+  const meta = { keys: Object.keys(result).slice(0, 12) };
+  for (const k of ["error", "code", "status", "message"]) {
+    const v = result[k];
+    if (v != null && String(v) !== "") meta[k] = String(v).slice(0, 120);
+  }
+  return meta;
+}
+
 /** utools.ai（宿主 ≥7.0）：流式收增量 chunk，PromiseLike 带 abort() */
 async function callUtools(messages, cfg, stream, onDelta, claim) {
   const u = ut();
@@ -231,7 +245,7 @@ async function callUtools(messages, cfg, stream, onDelta, claim) {
       logger.info("ai.call", "引擎调用完成", { engine: "utools", stream: false, model: modelLabelFor(cfg), ms: Date.now() - t0, chars: content.length });
     }
     if (!content.trim()) {
-      logger.warn("ai.call", "空输出", { chunks: chunkCount });
+      logger.warn("ai.call", "空输出", { chunks: chunkCount, resolve: resolveMeta(result) });
       return { ok: false, error: "EMPTY_OUTPUT" };
     }
     return { ok: true, content };
