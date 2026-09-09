@@ -94,7 +94,7 @@ export const DEFAULT_SETTINGS: Settings = {
   orderBy: "newest",
   aiEnabled: false,
   aiTitle: true,
-  aiAutoCount: 1,
+  aiAutoCount: 0,
   muteWords: [],
   highlightWords: [],
 };

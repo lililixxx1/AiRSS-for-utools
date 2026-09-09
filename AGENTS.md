@@ -37,7 +37,7 @@ python scripts/make-logo.py         # 重新生成 logo.png
 - **schemaVersion = 3**（二期已落地，v1.2 增补字段同属 v3 桶）：item 增加 `ai: { summary, tags[], titleZh, titleNorm, aiSource: 'batch'|'enrich' }` 与 `aiTrans: { paras:[{idx,head,text}], at, model }`（段落翻译纯文本，可选，旧文档缺失按 undefined 读）；`aiStatus: 'none'|'done'|'error'`（pending 仅存在于调用方内存）。contentHash 变化时 ingest 会清空 ai 与 aiTrans 并复位 aiStatus/titleDisplay（T-09）。
 - **titleDisplay 语义**：AI 改写标题的展示位（titleNorm > titleZh > 原 title；与原标题相同则等于 title）。titleNorm 口径 v1.2 起为"AI优化标题"（冗长/含糊/标题党→清晰客观中文，≤24 字）。
 - **AI 缓存文档**：`ai:enrich:v2:{contentHashTrunc}:{titleHash}`（复合键，正文截 2000 字哈希；v2 = AI优化标题口径）、`ai:cls:v2:{titleHash}`、`ai:trans:v2:{sha12(joined)}`（纯内容键，feed 联播同文跨源复用），LRU 上限 5000；额度分池手动 120/日、后台 30/日（BYOK 豁免）存 dbStorage。
-- **渲染层设置新增字段**（如 `aiAutoCount` 0/1/3/5，默认 1；v1.3 的 `muteWords/highlightWords: string[]` 默认 []）：只动 `src/types/index.ts` 的 Settings/DEFAULT_SETTINGS（settings.ts 按 DEFAULT 键集序列化，旧数据自动 merge 默认值）。
+- **渲染层设置新增字段**（如 `aiAutoCount` 0/1/3/5，默认 0=关闭自动、逐篇手动 AI 按钮，2026-09 由 1 改 0；v1.3 的 `muteWords/highlightWords: string[]` 默认 []）：只动 `src/types/index.ts` 的 Settings/DEFAULT_SETTINGS（settings.ts 按 DEFAULT 键集序列化，旧数据自动 merge 默认值）。
 - **v1.3 增量（全部可选字段，schemaVersion 仍为 3）**：`itemfullx:{item._id}` = 全文提取版（Readability 产物消毒 HTML，独立前缀**不写回 itemfull**——与 ingest 写序/contentHash 判重解耦；ingest 内容变化、retentionClean、deleteFeedCascade 均连带删它，T-09 同族）；`Feed.fullText?: boolean`（每源全文开关，默认关）；`Feed.order?: number`（拖拽排序：首次拖拽 initOrderOnce 批量赋值，此后新增源无 order 排末尾）；`ListFilter` kind 含 `'tag'`（定义在 data.ts）。searchContent 扫 itemfull+itemfullx 双前缀（同 id 去重）。
 
 ## AI 管线要点（改 preload/services/ai.js 前必读）
