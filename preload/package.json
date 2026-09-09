@@ -4,6 +4,7 @@
   "private": true,
   "type": "commonjs",
   "description": "AiRSS preload（uTools 规范：源码直供不打包；版本锁定为 Node16/CJS 兼容）",
+  "license": "GPL-3.0-only",
   "dependencies": {
     "@mozilla/readability": "~0.6.0",
     "fast-xml-parser": "^4.3.0",

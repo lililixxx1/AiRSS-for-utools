@@ -83,3 +83,7 @@ python scripts/make-logo.py     # 重新生成 logo
 - [ ] 全文提取实机（Node16 宿主内 linkedom/readability require 与运行、真实摘要型源抓取成功率、`FETCH_EMPTY_BODY`/`EXTRACT_TOO_SHORT` 实际占比）
 - [ ] 拖拽排序/分类菜单/标签区在实机无边框窗内的交互（指示线定位、⋯ 菜单裁剪）
 - [x] utools.ai 特性检测在当前账号环境的表现（2026-09-05 实机验证：接口可用、allAiModels 正常、流式/非流式/abort 均通过；单次生成 6~32s 为服务端耗时）
+
+## 开源协议
+
+本项目采用 [GPL-3.0](LICENSE) 协议发布（GPL-3.0-only）。
