@@ -441,33 +441,44 @@ const today = () => {
       { idx: 3, head: "结尾段总结全文", text: "结尾段总结全文并展望后续工作方向。" },
     ];
 
-    // 单元：[[idx]]标题 行协议解析
-    const parsed = T.parseTocOutput("[[0]]背景与动机\n[[2]]实验与数据\n[[2]]重复条目应丢弃\n[[9]]越界章\n说明行不匹配\n[[3]]结论与展望");
+    // 单元：[[idx|level]]标题 行协议解析（PLAN-TOC-LEVEL：level 缺省 1）
+    const parsed = T.parseTocOutput("[[0|1]]背景与动机\n[[2|2]]实验与数据\n[[2]]重复条目应丢弃\n[[9]]越界章\n说明行不匹配\n[[3]]结论与展望");
     ok("行协议解析（说明行自然丢弃，升序排列）", parsed.count === 4 && parsed.sections[0].idx === 0 && parsed.sections[1].title === "实验与数据" && parsed.sections[2].idx === 3 && parsed.sections[3].idx === 9);
+    ok("level 解析：显式 |2 生效", parsed.sections[1].level === 2 && parsed.sections[0].level === 1);
+    ok("level 缺省 1 / 越界 clamp 1-3（不丢行）", T.parseTocOutput("[[0]]a").sections[0].level === 1 && T.parseTocOutput("[[0|4]]a").sections[0].level === 3 && T.parseTocOutput("[[0|0]]a").sections[0].level === 1);
+    ok("标题剥 # 前缀（防输入标记渗入）", T.parseTocOutput("[[0]]## 带前缀的标题").sections[0].title === "带前缀的标题");
     ok("重复 idx 保首条去重", !parsed.sections.some((s) => s.title === "重复条目应丢弃"));
     ok("超长标题截 24 字", T.parseTocOutput("[[0]]" + "长".repeat(40)).sections[0].title.length === 24);
     ok("空/无标记输出 count=0", T.parseTocOutput("没有任何标记").count === 0 && T.parseTocOutput("").count === 0);
     ok("输出按 idx 升序", T.parseTocOutput("[[3]]c\n[[1]]a\n[[2]]b").sections.map((s) => s.idx).join() === "1,2,3");
 
-    // 单元：锚点过滤（head 按 idx 查表补全、越界丢弃）
+    // 单元：buildTocMessages 输入行 # 结构标记（审核必改-1 的防线）
+    const bm = T.buildTocMessages([{ idx: 0, head: "h", text: "普通段文本" }, { idx: 1, head: "t", text: "标题段文本", tag: "h2" }, { idx: 2, head: "x", text: "怪tag文本", tag: "bogus" }]);
+    ok("输入行 h 标签加 # 前缀、锚点在前、非 h1-h6 tag 忽略", bm[1].content.includes("[[0]]普通段文本") && bm[1].content.includes("[[1]]## 标题段文本") && bm[1].content.includes("[[2]]怪tag文本") && !bm[1].content.includes("]]## 怪"));
+
+    // 单元：锚点过滤（head 按 idx 查表补全、越界丢弃、level 透传）
     const anchored = T.tocAnchorSections(paras, parsed.sections);
     ok("head 从当前输入段落补全（≤20 字）", anchored[0].head === "开头段讲述了背景与动机" && anchored.every((s) => s.head.length <= 20));
     ok("idx 越界条目丢弃", !anchored.some((s) => s.idx === 9) && anchored.length === 3);
+    ok("锚点透传 level、非法回退 1", anchored[1].level === 2 && T.tocAnchorSections(paras, [{ title: "x", idx: 0, level: 9 }])[0].level === 1 && T.tocAnchorSections(paras, [{ title: "y", idx: 1 }])[0].level === 1);
 
     // 门控
     fake.calls = 0;
     ok("item 不存在 NOT_FOUND", !((await aiSvc.generateToc("item:toc:none", paras, {})).ok) && fake.calls === 0);
     ok("空 paras 返回 NO_PARAS", (await aiSvc.generateToc(item._id, [], {})).error === "NO_PARAS" && fake.calls === 0);
 
-    // 全链路：生成成功
+    // 全链路：生成成功（带 tag 段落验证限幅循环透传 # 标记，审核必改-1）
+    const parasTagged = paras.map((p, i) => ({ ...p, tag: i === 1 ? "h2" : undefined }));
     fake.script = ["[[0]]背景与动机\n", "[[2]]实验与数据\n[[3]]结论与展望"];
-    const r = await aiSvc.generateToc(item._id, paras, {});
+    const r = await aiSvc.generateToc(item._id, parasTagged, {});
     ok("目录生成成功", r.ok && r.aiToc && r.aiToc.sections.length === 3 && !r.cached);
+    ok("全链路 level 缺省 1", r.aiToc.sections.every((s) => s.level === 1));
+    ok("限幅循环透传 tag（引擎收到 ## 标记）", String(fake.options[fake.options.length - 1].messages[1].content).includes("[[1]]## 第二段展开核心问题"));
     const after = await db.promises.get(item._id);
     ok("aiToc 落库（head=段首 20 字）", after.aiToc.sections[1].head === paras[2].head && after.aiToc.model.length > 0);
     ok("手动池计 1 次", T.loadQuota().manual === 1);
     const tocCache = await db.promises.allDocs("ai:toc:");
-    ok("目录缓存已写且不含 head（命中路径重补）", tocCache.length === 1 && tocCache[0]._id.startsWith("ai:toc:v1:") && tocCache[0].result.sections.every((s) => s.head === undefined));
+    ok("目录缓存已写 v2 且不含 head、含 level（命中路径重补）", tocCache.length === 1 && tocCache[0]._id.startsWith("ai:toc:v2:") && tocCache[0].result.sections.every((s) => s.head === undefined && s.level >= 1 && s.level <= 3));
 
     const calls = fake.calls;
     const r2 = await aiSvc.generateToc(item._id, paras, {});

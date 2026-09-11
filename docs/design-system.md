@@ -18,7 +18,7 @@
 - **AA 是底线不是上限**：正文 ≥4.5:1，大字与非文本 ≥3:1；所有结论给出计算值，见 §3.3。
 - **双通道编码**：状态从不靠颜色单独表达（未读 = 颜色 + 字重；错误 = 红点 + 图标 + 文案）。
 - **键盘优先**：j/k/Enter/m/s/Shift+A/Ctrl+F/⌫ 全覆盖，鼠标只是捷径。主窗口 Esc 被宿主优先消费（实机验证），页内返回用 ⌫。
-- **动效只做一件事**：确认操作已发生。120–200ms，ease-out，绝不循环装饰动画（骨架 shimmer 除外）。
+- **动效只做一件事**：确认操作已发生。120–200ms，ease-out，绝不循环装饰动画（骨架 shimmer 除外；悬浮球 idle 漂浮为第二个豁免例外——静态锚点的存在感提示，展开即暂停、reduced-motion 全局瞬切冻结，见 C19）。
 - **中文排版**：不使用斜体（CJK 斜体是伪斜）；引用用左边框 + 缩进表达；数字/时间用 `font-variant-numeric: tabular-nums` 防跳动。
 
 ---
@@ -187,7 +187,8 @@
 | `--t-fast` | 120ms | hover/颜色/选中底过渡 |
 | `--t-med` | 160ms | 下拉、开关、分段控件、骨架显隐 |
 | `--t-slow` | 200ms | 阅读面板滑入、侧栏折叠、弹层进出场 |
-| `--ease-out` | `cubic-bezier(0, 0, 0.2, 1)` | 全站唯一缓动 |
+| `--ease-out` | `cubic-bezier(0, 0, 0.2, 1)` | 全站基础缓动 |
+| `--ease-spring` | `cubic-bezier(0.34, 1.56, 0.64, 1)` | 弹性 back-out（轻微过冲回弹）：悬浮轮盘项张开/球图标放大（C19），勿用于位移动画 |
 | `--t-skel` | 1.4s linear infinite | 骨架 shimmer |
 | `--t-progress` | 1.6s ease-in-out infinite alternate | 刷新进度条（不确定态） |
 
@@ -436,7 +437,8 @@
 - **背景**：AI 入口从阅读顶栏按钮（v1.4 AiToolsPanel 触发钮）迁为阅读区右下悬浮轮盘——hover 即达、点击直达动作，不打断阅读动线；顶栏 AI 按钮撤除。
 - **悬浮球**：44px 圆钮 absolute 于 `.reader`（right 20 / bottom 64，footer 上方不遮操作条），z 取 `--z-sticky`；`--bg-panel` + border-strong + shadow-1、sparkle 18px `--text-2`、常态 opacity 0.92，hover/展开加深（bg-card-hover + `--accent-deep` 字）；任一 AI 任务在飞显呼吸点（6px `--accent-strong`，1.1s 脉动，绝对定位球内右上）。不随正文滚动（不在 .reader-scroll 内）；detached 分离窗两种定位模式下均成立。
 - **轮盘几何**：三项 44px 圆钮沿**左上四分之一弧**展开（球贴右下角，朝右/朝下会出画）：摘要 -100°（-17,-91）/ 翻译 -135°（-65,-65）/ 目录 -170°（-90,-16），R=92px；相邻弦长 ≈55px 无重叠。展开动画只 transition transform/opacity（收起态聚球心 scale(.35) → 圆周 scale(1)，`--t-med` ease-out，错峰 0/20/40ms）；reduced-motion 全局瞬切天然合规，不碰布局轨道。
-- **热区模型**：容器 `pointer-events:none` 不挡正文（点击/选择穿透），仅球与展开态项 auto；open 期间挂 document mousemove——坐标在「球 rect 左/上各扩 120px」联合矩形内保活（连续区域，球→项任何直线路径无缝，无间隙误收起），移出即收；keydown 捕获 Esc 收起 + 焦点回球（hover 展开时焦点可能在 body，容器级监听收不到）。
+- **热区模型**：容器 `pointer-events:none` 不挡正文（点击/选择穿透），仅球与展开态项 auto；open 期间挂 document mousemove——坐标在「球 rect 左/上各扩 120px」联合矩形内保活（连续区域，球→项任何直线路径无缝，无间隙误收起），移出即收；keydown 捕获 Esc 收起 + 焦点回球（hover 展开时焦点可能在 body，容器级监听收不到）。**两档展开语义（2026-09-09 定）**：hover = 预览（移开即收）；**点击球 = 展开并锁定**（pinned，移开热区不收，再次点球 / 点功能项 / Esc / 切文才收）。
+- **动效（双层分段时序，2026-09-09 三次打磨定稿）**：项为双层结构——外层 `.ai-witem` 管 translate（球心 → 弧位，`--t-med` ease-out，错峰 --d 0/45/90ms），内层 `.ai-witem-in` 管 rotate(-50deg)+scale(0.2) 弹性张开（`--t-slow --ease-spring`，delay = --d+40ms）——位移先到位、旋转缩放后收口，合成「甩出 → 张开」的弧感（单层同缓动是直线插值，观感死板的根因）。展开时球外圈一次性涟漪（::after，scale 1→1.9 / opacity .45→0 / 420ms；**基础态必须 opacity:0**——播完与 reduced-motion 瞬切都回落基础态）+ 球体 shadow-1→shadow-2 抬升（transform 已被 idle 漂浮占用，本体不做缩放）；收起 = t-fast 快速收拢（内外层都显式 t-fast，无弹性不拖沓）；球 idle 轻漂浮（translateY ±3px / 3.2s，展开时暂停）；图标层 hover/展开弹性放大微转（与球的 float 分层不抢 transform）；展开态项 hover 回弹 = 内层 scale 1.12 + 外层 shadow-2（transform 分量归内层管）。busy 旋转环/done 角标挂外层不随入场旋转。全部走 transform/opacity 合成器属性，reduced-motion 全局瞬切天然合规。
 - **键盘（menu-button 惯例）**：球聚焦**不**自动展开（避免 mousedown-focus 与 click toggle 互搏），方向键/Enter/click 展开；容器 `role="menu"`、项 `role="menuitem"`、方向键环形导航；**收起态 `visibility:hidden` + `tabindex=-1` 双保险**——opacity+pointer-events 不把 button 移出 Tab 序，会留键盘盲焦点。焦点转移到项用 nextTick（微任务）：rAF 在后台/节流窗格被冻结，焦点会滞留球上（2026-09 回归实测修复）。
 - **项状态语汇**：进行中 = 外圈 2px accent 旋转环（inset -4）；已有产物 = 右上 6px `--accent-strong` 实心点；不可用（AI 关 / 中文正文翻译项）= opacity .45 + cursor:default。title 原生 tooltip（翻译 loading 态写「翻译中，点击取消」，让取消可发现）。
 - **点击语义**（直达动作，PLAN-AI-WHEEL §1.4）：摘要=生成 / 重试 / 已有则滚顶；翻译=开始 / loading 再点=取消（abort，runTranslate 的 ABORTED 分支自愈）/ 显隐译文；目录=开列表 / 无且可生成则生成后自动开面板 / AI 关与短文只开面板出文案（**AI 关不得触发生成**——tocAiEligible 不含 aiEnabled，撞 preload 硬门控会弹假错）。面板开着点球=先关面板再展开（AiToolsPanel onDocDown 豁免触发钮，须显式互斥）；面板+轮盘同开时 Esc 一次双闭。
@@ -551,6 +553,7 @@
 | 阅读面板（小窗） | 200ms 滑入 `translateX(16px)→0` + 淡入；返回反向 160ms |
 | 侧栏折叠 | width 280↔64，200ms `--ease-out`；文字 opacity 先行 120ms |
 | 弹层 | scrim 160ms；面板 200ms scale 0.98→1 + 淡入 |
+| 悬浮轮盘展开（C19） | 外层 translate `--t-med --ease-out` 错峰 0/45/90ms；内层 rotate/scale `--t-slow --ease-spring`（delay = --d+40ms）；球 idle 漂浮 3.2s（§21 豁免例外，展开时暂停） |
 | 骨架 shimmer | 1.4s linear infinite，`--skel-b` 高光带 -25%→125% |
 | 刷新进度条 | 1.6s ease-in-out infinite alternate（位移渐变）；刷新中图标 0.9s 旋转 |
 | 统计数字变化 | 120ms 淡入（旧值即逝，不做计数动画） |

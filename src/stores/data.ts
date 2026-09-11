@@ -265,7 +265,9 @@ export const useDataStore = defineStore("data", {
     /** AI 轻量批（二期）：刷新/导入后对近 7 天未处理文章补 tags/标题（后台池，preload 侧 ≤20 篇/批） */
     queueAiBatch() {
       const settings = useSettingsStore();
-      if (!settings.aiEnabled) return;
+      // aiAutoCount=0（自动摘要：关闭）= 不发任何自动 AI——后台轻量批同样受此门控
+      // （2026-09-10 实机反馈修复：此前只看 aiEnabled，用户关了自动摘要刷新后仍在调引擎）
+      if (!settings.aiEnabled || settings.aiAutoCount === 0) return;
       const weekAgo = Date.now() - 7 * 86400e3; // T-08：首刷/导入只处理最近文章，历史存量不做 AI
       const pending = this.items.filter((x) => x.aiStatus === "none" && x.pubTs > weekAgo).slice(0, 20);
       if (!pending.length) return;
@@ -311,10 +313,19 @@ export const useDataStore = defineStore("data", {
         });
         await this.loadAll();
         this.queueAiBatch(); // 轻量批：刷新完成后后台补 AI 标题/标签
-        // 刷新完成后触发保留清理（PLAN §4 时机约定）
+        // 刷新完成后触发保留清理（PLAN §4 时机约定）。按需预筛（PLAN-PERF-2 §2.2）：仅
+        // !starred 计数超 keep 的源才可能有 doomed——与 preload retentionClean 的
+        // filter(!starred)→sort(pubTs desc)→slice(keep) 口径互为充要
+        // （doomed 长度 = max(0, cnt(!starred) − keep)，见 db.js retentionClean 注释互指），
+        // 常态（keep ≥ 条目数）0 次调用；preload 侧逐条 get 复查仍是真相执行者
         const keep = settings.keepPerFeed;
+        const nonStarred = new Map<string, number>();
+        for (const x of this.items) {
+          if (x.starred) continue;
+          nonStarred.set(x.feedKey, (nonStarred.get(x.feedKey) || 0) + 1);
+        }
         for (const f of this.feeds) {
-          await window.airss.db.retentionClean(f, keep);
+          if ((nonStarred.get(f._id) || 0) > keep) await window.airss.db.retentionClean(f, keep);
         }
         if (manual) {
           ui.toast(summary.newItems > 0 ? `刷新完成 · ${summary.newItems} 篇新文章` : "刷新完成 · 没有新文章");
@@ -403,7 +414,19 @@ export const useDataStore = defineStore("data", {
         return;
       }
       await window.airss.db.markManyRead(ids);
-      await this.loadAll();
+      // 内存同步即终态，不 loadAll（PLAN-PERF-2 §2.1）：省万级全量快照 IPC + reactive 重建。
+      // 安全：渲染层无直写 item 路径（setRead/setStarred/enrich 回写均 preload get-fresh 再写，
+      // 内存 _rev 过期无影响）；内存推 ≠ 落库——db 侧 unreadCount 由下次刷新/云同步
+      // recalcUnread 对账（陈旧窗口与现状一致且自愈）。但 feed.unreadCount 不能「减 n」式推：
+      // db 侧底数可能陈旧虚高（旧瑕疵：loadAll 曾把它拉回覆盖本地推），全部已读后徽标会残留——
+      // 标记后一遍实算每源未读数直接赋值（与 categories 同口径，2026-09-09 回归实锤修正）。
+      const idSet = new Set(ids); // ids 来自 filtered 视图：必须成员判定，绝不能全量置
+      const unreadByFeed = new Map<string, number>();
+      for (const x of this.items) {
+        if (idSet.has(x._id) && !x.read) x.read = true;
+        if (!x.read) unreadByFeed.set(x.feedKey, (unreadByFeed.get(x.feedKey) || 0) + 1);
+      }
+      for (const f of this.feeds) f.unreadCount = unreadByFeed.get(f._id) || 0;
       ui.toast(`已将 ${ids.length} 篇文章标为已读`);
     },
 

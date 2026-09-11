@@ -851,28 +851,40 @@ const TOC_MAX_CHARS = 10000; // 单次输入总字符上限，超出截断（渲
 
 function buildTocMessages(paras) {
   const system =
-    "你是资深编辑。把栅栏内逐段编号的长文划分为 3~10 个连续章节，为每章拟一个客观的中文标题。\n" +
-    "输出格式：每章一行，以 [[起始段编号]] 开头，如 [[3]]章节标题。\n" +
-    "标题不超过 24 字、不带序号或表情；只输出这些行，不要解释、不要复述正文。";
-  const user = "<<<\n" + paras.map((p) => "[[" + p.idx + "]]" + p.text).join("\n") + "\n>>>";
+    "你是资深编辑。把栅栏内逐段编号的长文划分为 3~10 个连续章节，为每章拟一个客观的中文标题；章内若有明显可区分的子话题，可为该章再分 1~4 个子章并各自拟标题。\n" +
+    "输入中部分行首的 #/##/### 等前缀是原文的标题标记，请参考其层级归属。\n" +
+    "输出格式：每章或子章一行，以 [[起始段编号|层级]] 开头，层级 1=章、2=子章，子章行紧跟其章行，如 [[3|1]]章节标题、[[5|2]]子章标题；文章无明显子结构时全部用层级 1。\n" +
+    "标题不超过 24 字、不带序号、表情或 # 前缀；只输出这些行，不要解释、不要复述正文。";
+  // 结构标记（PLAN-TOC-LEVEL）：h1-h6 段行首加 markdown # 前缀（数量=标题级），# 不计入限幅/缓存键 joined
+  const user =
+    "<<<\n" +
+    paras
+      .map((p) => {
+        const mm = /^h([1-6])$/.test(String(p && p.tag) || "") ? "#".repeat(Number(p.tag[1])) + " " : "";
+        return "[[" + p.idx + "]]" + mm + p.text;
+      })
+      .join("\n") +
+    "\n>>>";
   return [
     { role: "system", content: system },
     { role: "user", content: user },
   ];
 }
 
-/** 解析 [[idx]]标题 行协议；同 idx 保首条去重 + 升序（防 AI 重复输出致条目重复/覆盖率失真） */
+/** 解析 [[idx|level]]标题 行协议（PLAN-TOC-LEVEL：level 缺省 1，数字越界 clamp 1-3；标题剥 # 前缀防输入标记渗入）；
+ *  同 idx 保首条去重 + 升序（防 AI 重复输出致条目重复/覆盖率失真） */
 function parseTocOutput(text) {
   const out = { sections: [], count: 0 };
   const seen = new Set();
-  const re = /\[\[(\d+)\]\](.+)/g;
+  const re = /\[\[(\d+)(?:\|(\d+))?\]\](.+)/g;
   let m;
   while ((m = re.exec(String(text || "")))) {
     const idx = Number(m[1]);
-    const title = m[2].trim().slice(0, 24);
+    const level = Math.min(3, Math.max(1, Number(m[2] !== undefined ? m[2] : 1)));
+    const title = m[3].trim().replace(/^#{1,6}\s*/, "").slice(0, 24);
     if (!Number.isInteger(idx) || idx < 0 || !title || seen.has(idx)) continue;
     seen.add(idx);
-    out.sections.push({ title, idx });
+    out.sections.push({ title, idx, level });
     out.count += 1;
   }
   out.sections.sort((a, b) => a.idx - b.idx);
@@ -887,7 +899,13 @@ function tocAnchorSections(paras, sections) {
   for (const s of Array.isArray(sections) ? sections : []) {
     const p = byIdx.get(Number(s && s.idx));
     if (!p || !p.head) continue;
-    out.push({ title: String(s.title || "").slice(0, 24), idx: p.idx, head: String(p.head).slice(0, 20) });
+    const lv = Number(s && s.level);
+    out.push({
+      title: String(s.title || "").slice(0, 24),
+      idx: p.idx,
+      head: String(p.head).slice(0, 20),
+      level: Number.isFinite(lv) && lv >= 1 && lv <= 3 ? Math.round(lv) : 1, // PLAN-TOC-LEVEL：非法/缺失回退 1
+    });
   }
   return out;
 }
@@ -904,9 +922,9 @@ async function applyToc(itemDoc, paras, sections, model) {
 }
 
 /**
- * AI 目录生成（v1.4，PLAN-AI-TOC · 手动池）。
+ * AI 目录生成（v1.4，PLAN-AI-TOC · 手动池；PLAN-TOC-LEVEL 两级层级协议）。
  * @param {string} itemId
- * @param {Array<{idx:number, head:string, text:string}>} paras 渲染层全量段落（collectParasAll 产物）
+ * @param {Array<{idx:number, head:string, text:string, tag?:string}>} paras 渲染层全量段落（collectParasAll 产物；tag=h1-h6 供输入侧结构标记）
  * @param {{bypass?:boolean}} [opts]
  * @returns {Promise<{ok:boolean, aborted?:boolean, aiToc:object|null, cached:boolean, error:string|null}>}
  */
@@ -929,19 +947,21 @@ async function generateToc(itemId, paras, opts = {}) {
     .slice(0, TOC_MAX_PARAS);
   if (!list.length) return { ok: false, aiToc: null, cached: false, error: "NO_PARAS" };
 
-  // 输入限幅：每段 ≤TOC_PARA_CHARS、总量 ≤TOC_MAX_CHARS（渲染层已截过，此处兜底）
+  // 输入限幅：每段 ≤TOC_PARA_CHARS、总量 ≤TOC_MAX_CHARS（渲染层已截过，此处兜底）；
+  // tag 必须随重建对象透传（PLAN-TOC-LEVEL 审核必改-1：漏传则 buildTocMessages 的 # 标记静默失效）
   const trimmed = [];
   let total = 0;
   for (const p of list) {
     if (total >= TOC_MAX_CHARS) break;
-    trimmed.push({ idx: p.idx, head: p.head, text: p.text.slice(0, Math.min(TOC_PARA_CHARS, TOC_MAX_CHARS - total)) });
+    trimmed.push({ idx: p.idx, head: p.head, text: p.text.slice(0, Math.min(TOC_PARA_CHARS, TOC_MAX_CHARS - total)), tag: p.tag });
     total += trimmed[trimmed.length - 1].text.length;
   }
   const joined = trimmed.map((p) => p.text).join("");
 
   // 纯内容键（不含 itemId/contentHash）：feed 联播同文跨源命中；全文提取替换正文不更新
-  // contentHash（extract 落库只删 aiTrans），挂 contentHash 会命中旧目录写入死数据（送审确认）
-  const cacheId = "ai:toc:v1:" + dbSvc.sha12(joined);
+  // contentHash（extract 落库只删 aiTrans），挂 contentHash 会命中旧目录写入死数据（送审确认）。
+  // v2（PLAN-TOC-LEVEL）：协议升级两级层级，v1 产物无 level 命中即平铺，键版本隔离
+  const cacheId = "ai:toc:v2:" + dbSvc.sha12(joined);
   if (!opts.bypass) {
     const cached = await db().get(cacheId);
     if (cached && cached.result && Array.isArray(cached.result.sections) && cached.result.sections.length) {
@@ -1000,8 +1020,8 @@ async function generateToc(itemId, paras, opts = {}) {
     logger.info("ai.toc", "提取已替换正文，产物弃写", { itemId, sections: parsed.count });
     return { ok: false, aiToc: null, cached: false, error: "CONTENT_CHANGED" };
   }
-  // 缓存载荷不含 head：命中路径由 applyToc 从当前输入段落重补（跨源同文 DOM 差异免疫）
-  await cachePut(cacheId, { sections: anchored.map(({ title, idx }) => ({ title, idx })), model: modelLabelFor(cfg) });
+  // 缓存载荷不含 head：命中路径由 applyToc 从当前输入段落重补（跨源同文 DOM 差异免疫）；level 属产物语义随缓存存
+  await cachePut(cacheId, { sections: anchored.map(({ title, idx, level }) => ({ title, idx, level })), model: modelLabelFor(cfg) });
   const saved = await applyToc(item, trimmed, parsed.sections, modelLabelFor(cfg));
   await cacheTrim();
   logger.info("ai.toc", "回写完成", { itemId, wrote: !!(saved && saved.aiToc) });

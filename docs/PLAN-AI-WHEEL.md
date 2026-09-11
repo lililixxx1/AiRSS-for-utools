@@ -12,7 +12,7 @@ v1.4 的 AI 入口是阅读顶栏「AI」sparkle 按钮 → AiToolsPanel 浮层�
 1. **轮盘替代顶栏按钮**：撤掉顶栏 AI sparkle 按钮，悬浮轮盘成为唯一快捷入口；目录列表/进度等详情仍打开 AiToolsPanel 呈现。
 2. **三项**：摘要 / 翻译 / 目录（与面板三区对齐，不新增功能项）。
 3. **点击直接执行**：摘要=立即生成（已有则滚到摘要卡）；翻译=立即开始（翻译中再点=取消）；目录=已有则打开目录列表、无且可生成则直接生成（完成后自动打开列表）。
-4. **hover 展开 + 移开收起**；点击功能项执行后收起。
+4. **hover 展开 + 移开收起**；点击功能项执行后收起。（2026-09-09 实装后用户二次反馈调整：**点击球 = 展开并锁定**——移开热区不收、再次点球才收；hover 降为预览语义仍移开即收。见 §7 变更记录。）
 
 ## §1 交互设计
 
@@ -216,3 +216,16 @@ else {
 - **回归真 bug（已修）**：轮盘键盘焦点转移原用 `requestAnimationFrame`——后台/节流窗格（IAB 回归环境实测）rAF 整族冻结，方向键展开后焦点滞留球上。改 `nextTick`（微任务，DOM patch 后 visibility 已立即 visible 可 focus）。教训并入 design-system C19。
 - **回归环境噪音（非产品，备查）**：① IAB 节流（500ms 定时器实跑 1066ms）冻慢 mock 流式——enrich/translate 的 loading 中间态可用，完成态等待不可靠，改预置数据/延迟垫片验证；② IAB 宿主偶发把标签页重置为 about:blank（两次），长 sleep cell 的断言会被打断——「生成后自动开面板」首测假阴性即此因，复测通过；③ detached 切换会卸载 .main-col 读者组件并在 .reader-col 新建实例——测试脚本持切换前元素引用会拿到 rect 全 0 的脱 DOM 节点，切换后必须重新查询。
 - **§5 九项全过**：几何实测 (-16,-91)/(-65,-65)/(-91,-16)（设计值 ±1px 舍入）；面板翻转底边距球顶 -6px 精确；B1/B4/双闭/取消分支（abort 调用计数 + 延迟垫片拉长 loading 窗）均验证；detached 几何与面板一致。
+
+### 变更记录（2026-09-09 二次反馈）
+
+1. **面板列表滚动即关（bug 修复）**：三个 C17 浮层组件（AiToolsPanel/DropdownSelect/ComboboxInput）的 window scroll 捕获监听收得到**任何元素**的滚动——滚轮滚面板自身 `overflow-y:auto` 列表（长目录）时面板被当场关闭。修法：onWinScroll 判 `panelRef.contains(e.target)` 忽略面板内滚动 + 面板容器加 `overscroll-behavior: contain` 防滚到底穿透正文。下拉组件因选项 ≤8 项不用滚从未暴露，同根因一并修。
+2. **展开语义改为点击锁定 + 动效增强（用户反馈「太死板」）**：新增 `pinned` 两档语义——hover=预览（移开即收）、点击球=展开锁定（移开不收，再次点球/点项/Esc/切文才收）。动效：tokens.css 新增 `--ease-spring`（back-out 弹性）；项展开改弹性扇开（rotate(-50°)→0 + 过冲回弹，错峰 0/45/90ms），收起 t-fast 快收；球 idle 漂浮 ±3px/3.2s（展开暂停）；图标层（.ai-ball-ic）弹性放大微转；展开态项 hover 回弹 scale 1.12。全部合成器属性，reduced-motion 瞬切天然合规（本机默认 reduce，回归只验最终态与令牌接线，中间态待实机 reduce-off 环境目验）。
+
+### 变更记录（2026-09-09 三次反馈：出现动效打磨 + 性能顺带）
+
+与 PLAN-PERF-2 §3 同批实施（该文档为审核定稿版）：
+
+3. **出现动作改双层分段时序（用户反馈「出现轮盘的动作也要优化」）**：单层 transform（translate+rotate+scale 同缓动同时长）是直线插值——拆为外层 `.ai-witem`（translate，t-med ease-out，错峰 --d）+ 内层 `.ai-witem-in`（rotate+scale，t-slow spring，delay=--d+40ms），位移先到位、旋转缩放后收口，合成「甩出→张开」弧感；hover 回弹迁内层（scale 1.12，外层补 shadow-2）；旧单层 hover 覆写规则删除防打架。展开加一次性涟漪（::after 基础态 opacity:0，播完/瞬切回落即隐形）与球体 shadow-2 抬升。收起内外层均显式 t-fast。
+4. **热区判定 rect 缓存（性能顺带）**：openWheel 时缓存球 rect（absolute 于 .reader 不随滚动移动，open 期间恒定），mousemove 判定读缓存——原实现每次 getBoundingClientRect 在 AI 流式渲染（布局反复脏）下是强制 reflow 源。resize 中 open 的陈旧值可接受（重开即新）。
+5. **回归补获 1 个环境行为差异**：IAB 宿主在 evaluate 间隙会偷焦点（activeElement 重置 body 且无冒泡 focusout），轮盘键盘展开后焦点会被偷走——非产品问题（真实交互焦点稳定），focusout 收起路径以「relatedTarget=body 收 / =球 不收」两向派发对照验证通过。

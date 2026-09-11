@@ -91,7 +91,9 @@ function onDocDown(e: MouseEvent) {
   if (triggerRef.value?.contains(t) || panelRef.value?.contains(t)) return;
   close();
 }
-function onWinScroll() {
+function onWinScroll(e: Event) {
+  // 只对「面板外」滚动关闭；面板自身列表滚动不关（scroll 不冒泡但 window 捕获收得到任何元素滚动）
+  if (e.target instanceof Node && panelRef.value?.contains(e.target)) return;
   close(); // 面板 fixed 不随滚动移动；关闭比重算便宜且不突兀
 }
 watch(open, (v) => {
@@ -166,7 +168,7 @@ onBeforeUnmount(() => {
 
 .ddsel-panel {
   position: fixed; z-index: var(--z-toast); /* 面板会出现在弹层（z-modal 600）内，必须高于弹层 */
-  max-height: 264px; overflow-y: auto;
+  max-height: 264px; overflow-y: auto; overscroll-behavior: contain;
   background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--r-md);
   box-shadow: var(--shadow-2); padding: 4px;
 }

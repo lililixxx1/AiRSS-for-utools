@@ -147,3 +147,41 @@ export interface ArticleAiToc {
 三阶段全部落地。**测试**：test-ai 109 项（+24 目录用例）、test-db-mock 66、smoke 37、check-preload-mapping、typecheck、vite build 全绿。**浏览器回归（IAB + mock）**：结构文前端目录 4 条直出、跳转收起重开高亮当前章；无结构长文「AI 生成目录」→ mock 生成 3 节 → 跳转；「仅覆盖前 75%」覆盖标注；AI 关闭门控（条目仍列 + 摘要区「未开启」）；短文「文章较短，无目录」；面板开着切文强关；翻译迁移（顶栏已撤、面板四态、缓存译文自动展示 + 显示/收起往返 10 段）；detached 强制激活（fixed 定位 + 从顶跳末章 0→934=maxScroll）。
 
 **回归发现并修复 1 个真 bug**：collectParasAll 初版沿用翻译的段落 ≥10 字文本门槛，h2/h3 标题文本天然短（如「背景与问题」5 字）被整体滤光 → 前端目录恒空。修复：h1-h6 不受字数门槛限制（其余文本块保留），AGENTS.md「AI 管线要点」已记。回归测试脚本的教训：打开面板后必须等一拍再查 DOM（Vue 异步渲染，同步 querySelector 拿到空列表是测试时序问题，非产品 bug）；IAB 面板被遮挡时定时器整族节流，mock 流式翻译不可作为等待对象（译文往返改用预置 aiTrans 缓存验证）。
+
+## 12. 变更记录（2026-09-10，PLAN-TOC-LEVEL 目录层级化）
+
+用户反馈「目录没有层次」（例 daily.juya.uk/rss.xml：h2/h3 结构清晰却平铺）。方案与审核闭环见 `docs/PLAN-TOC-LEVEL.md`，本文档只记协议级变更：
+
+- **行协议升级 `[[idx|level]]标题`**：level 1=章 2=子章（prompt 限两级求稳），解析 `\|(\d+)` + JS clamp 1-3（越界 clamp 不丢行）、缺省 1；标题剥 `#` 前缀。
+- **§47 载荷形状已过时**：缓存键 `ai:toc:v1:` → **`ai:toc:v2:`**，v2 载荷为 `{sections:[{title,idx,level}], model}`（仍不含 head，命中路径重补口径不变）。v1 存量由 cacheTrim LRU 自然淘汰。
+- **输入行增结构标记**：段落带 `tag`（h1-h6，渲染层 runToc 透传，generateToc 限幅循环必须随重建对象透传）时行首加 markdown `#` 前缀（`[[idx]]## 标题`），prompt 声明其为原文标题标记。
+- **前端结构目录层级**：tocHeadings 增 `level`，实际出现的 h2/h3/h4 标签秩排序后序号映射 1..n（纯 h3/h4 文章归一为 1/2，防全缩进与「无父级 lv3」孤儿）。
+- **展示**：AiToolsPanel 目录条目按级缩进（lv1 加粗+组间距、lv2 缩进 22px、lv3 缩进 36px）；lv 规则置于 base 之后、.cur 之前（同特异度靠源序）。
+- **兼容**：旧 item.aiToc（无 level）展示回退平铺（=现状），无手动重生成入口（runToc bypass=true 无调用点，现状如此），存量到 T-09 清空为止自然换新。
+
+## 13. 变更记录（2026-09-10）：摘要成功后连带生成目录
+
+**用户反馈**：「AI 摘要生成后，AI 目录列表怎么没有一并生成」。现状是 v1.4 访谈决策 2 的「目录手动触发」——enrich 与 generateToc 两条独立管线。用户期望目录搭乘摘要顺风车：摘要动作本身已是显式 opt-in（手动按钮或 aiAutoCount≥1），连带不算新增自动行为，不引入新设置项。
+
+**改动**：`ReaderPanel.runEnrich` 成功分支（`res.ok && res.ai`）末尾，`prefetchNext` 之前：
+
+```ts
+ensureTocMeta();
+if (!tocFromHtml.value && tocAiEligible.value && !it.aiToc) await runToc();
+if (seq !== aiSeq) return; // 目录生成期间切文：预取随 resetAiStream 作废，不再发起
+if (settings.aiAutoCount > 1) prefetchNext(...); // 原有行后移
+```
+
+**关键决策**：
+
+1. **门控**：仅「无结构长文」（h2-h4 <2 且 ≥1500 字）且 `!it.aiToc` 才连带——结构文前端秒出目录零增量成本（juya 类文章摘要后不多花 1 次调用）；已有目录（含此前缓存命中/连带失败后 regen 摘要重试）不重跑。每次连带 = 手动池 +1。
+2. **必须 await 且先于 prefetchNext**：`runToc` 入口与 `prefetchNext` 每步都按单飞纪律先 `window.airss.ai.abort()`——若目录与预取同时起飞互掐（后起飞者杀前者）。串行链：enrich → 目录 → 预取，代价是 aiAutoCount=3/5 档的预取延迟一次目录生成时长。runEnrich 的调用方均不 await（fire-and-forget），内部 await 无外溢。
+3. **await 后补 seq 守卫**：原 prefetchNext 行是同步执行，await runToc 期间切文时 aiSeq 已变——必须 return（预取链随 resetAiStream 的 prefetchSeq+1 自然作废）。
+4. **失败安静度沿用 runToc 现有口径**：额度尽弹「今日 AI 额度已用完」、引擎失败弹 toast——连带场景保留（用户在等目录，静默会让「摘要成功目录没出」再次成疑）。
+5. **不连带的边界（明示）**：列表卡片「AI 摘要」按钮（summarizeItem，文章未打开无 DOM 段落）与「打开已有摘要的文章」分支（631 行，无 enrich 动作，**含 aiAutoCount≥2 被预取补实摘要后打开的文章——用户原始投诉路径在该档位仍会重现，属已知边界非遗漏**）不触发——这些文章目录仍走面板/轮盘手动生成。另有一处**内存中间态**（2026-09-11 审核补记）：jumpTo 的 head 严格校验失配会把 `item.aiToc` 置 undefined（530 行，只清内存不落库）——此后同会话内任何再次 enrich 都视作「无 aiToc」连带重跑一次目录（手动池 +1，用户未显式要求）。影响面小（需 head 失配与再次 enrich 同时成立），不做查库补判（成本不划算），按已知边界记录。
+6. **并发防线（审核必改 1 更正）**：enrich **没有** CONTENT_CHANGED 弃写语义（applyAi 只做 H4 复验 + T-21，无 supersededByExtract；extract 落库也只清 aiTrans/aiToc 不清 ai）——fullText 源下 extract 与 enrich 并发时 enrich 照常 ok:true、连带照常发起；实际安全由 runToc 自己的 B-1 兜住（extract 在 runToc startedAt 之后落库 → 弃写返 CONTENT_CHANGED 安静回 idle；之前落库 → 目录对新正文生成，行为正确）+ maybeExtractFull 的 resetToc 兜底，无需新增防线。
+7. **`await runToc().catch(() => {})` 一行隔离**（审核建议 4）：runToc 现全捕获不抛，但未来若改抛，runEnrich 的 catch 会把已成功的摘要翻成 error 态并跳过预取——隔离封死这层耦合。
+
+**回归清单（审核建议 2/3 并入）**：mock 下①打开无结构长文（aiAutoCount=1）→ 目录自动生成——**等待方式用轮询 aiToc 出现（放宽超时），不可等待 enrich 流式完成事件**（mock enrich 是 sleep(24)×22 假流式，IAB 面板遮挡时定时器整族节流，§11 已实证）；②aiAutoCount=3 → 目录完成后预取仍执行（后续文章 aiStatus 变 done）；③结构文摘要后不发起目录调用（monkey-patch generateToc 计数）；④目录生成期间切文——**断言口径限 UI 态（tocState 回 idle、面板强关）**，mock 的 abort 是空操作、切文后旧文在 mock 下仍会拿到 aiToc（与实机 abort 全弃不同形，不断言数据面）；⑤已有目录文章 regen 摘要不重跑目录。落地后 AGENTS.md「AI 管线要点」补连带门控与串行链一句（审核建议 6）。
+
+**实施与回归记录（2026-09-10）**：ReaderPanel runEnrich 成功分支落地（连带判定 + await 串行 + seq 守卫 + catch 隔离）。typecheck/build 绿。浏览器回归 5 项全过：①无结构长文摘要完成后目录自动生成（generateToc 计数 1、层级 1/1/2/1/1 两级）；②aiAutoCount=3 下目录回写 0.5ms 后预取链恢复（日志铁证 tocF enrich 发起并完成）；③结构文摘要不连带（计数 0）；④目录在飞时切文——面板强关、轮盘收起、新文自动摘要正常接力；⑤已有目录文章 regen 摘要不重跑（enrich 日志 4 行=两轮完整、计数保持 2）。回归环境备注：?view=reader 直达早于 ReaderPanel 挂载会被非 immediate 的 readerItemId watcher 错过（enrich 不自动跑）——回归必须用 j/k 键盘或 UI 真实路径开文；IAB 节流下 mock enrich 假流式单次可达 8s，轮询等待放宽 30s+；mock enrich 返回值不带 item 字段致 store 不回写（预取断言以诊断日志为准，mock 保真度既有缺口非本次引入）。

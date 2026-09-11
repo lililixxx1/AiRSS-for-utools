@@ -215,3 +215,20 @@ T-09 内容失效、H2/H4 原子回写、F4 额度）+ 本文档 §1 的对应�
   按段上限 10 块/4000 字控制，进度计数缓解等待焦虑；③ 预取串行 enrich 在慢模型下占用
   手动池（120/日），设置项文案明示"连续 5 篇 = 每次预取最多 4 次调用"；
   ④ mock 与实机行为差异（已知坑清单），新增接口面在阶段0一次性铺完并过 mapping 校验。
+
+## 变更记录（2026-09-10）：轻量批纳入 aiAutoCount=0 门控
+
+**实机反馈**：用户已将设置「自动摘要」选为关闭（`aiAutoCount=0`），刷新完成后仍发起轻量批（日志 `[ai.batch] 批量调用失败 {"pending":20,"error":"ENGINE_TIMEOUT"}`）。根因：`data.ts queueAiBatch()` 只门控 `settings.aiEnabled`（AI 总开关），不看 `aiAutoCount`；设置页「自动摘要」开关绑定的是 aiAutoCount——用户理解的「关闭」覆盖一切自动 AI，实际后台批另走一路。附带的 ENGINE_TIMEOUT（60s 硬超时 chunks=0）属已知宿主节流线程（utools.ai 空输出），0 chunks 不计额度，防御本身正常——门控修复后该自动调用不再发起，症状自然消失。
+
+**改动（最小面；审核必改 1 + 建议 1/2/3 已并入）**：
+
+1. `src/stores/data.ts queueAiBatch()`：入口条件 `!settings.aiEnabled` → `!settings.aiEnabled || settings.aiAutoCount === 0`。语义定稿：**aiAutoCount=0（关闭）= 不发任何自动 AI**（阅读预取 prefetchNext 本就不跑 + 后台轻量批也不跑）；≥1 = 用户 opt-in 自动，轻量批恢复。两个调用点（refreshDue 完成后 / addFeed 首抓后）共用此入口，一处即覆盖（审核确认：importOpml 走 refreshDue 间接覆盖，无其他绕过路径）。
+2. `src/components/SettingsView.vue` 两处文案：
+   - 自动摘要 note 补半句：「关闭后刷新/新订阅也不再自动补标题/标签」（用轻量批实际产物措辞，不用含糊的"处理"）。
+   - **总开关 note（审核必改 1）**：原「开启后打开文章自动生成中文摘要与标签，刷新后自动为新文章补标题」在默认组合（aiEnabled 开 + aiAutoCount=0）下两个承诺都不成立——改为条件化表述，自动行为统一挂「自动摘要」档位前提。
+3. `AGENTS.md` AI 管线要点轻量批条目补门控前提（审核建议 1：「aiAutoCount=0 时不跑，2026-09-10 门控」，防后人按旧注释当 bug 修回去）。
+4. **不改**：preload `batchEnrich` 的 `cfg.enabled` 硬门控（门控层级保持：渲染层管用户语义、preload 管引擎开关；审核确认 aiAutoCount 是渲染层概念，preload 配置面本就不含它，与 enrich/prefetch 门控同层一致）；ENGINE_TIMEOUT 超时/计额逻辑（审核确认批是非流式 countCall 在成功后才调、0 chunks 失败不计额，与 F4 不矛盾）；**用户切到 0 时在途批次（≤60s）不中止、产物照常落库**——勿改成切 0 调 abort：单句柄架构 currentAbort 唯一，会误杀用户正在看的流式摘要（审核建议 2 明示为不做）。
+
+**审核确认的降级面**（aiAutoCount=0 下无一功能破坏）：ai.tags 消费方（ArticleCard 徽章/侧栏标签云/标签过滤入口）全为空态静默不渲染或不可达，标签云本就按空数组整区隐藏；搜索快路径 titleDisplay||title 兜底；手动按钮条件对无批产物文章恒真照常出现。
+
+**回归检查单（长期）**：浏览器 mock 下 aiAutoCount=0 + aiEnabled=true 时触发 refreshDue/addFeed 不发起 batchEnrich（包装计数断言 0 次）；aiAutoCount=3 恢复 ≥1 次。test-ai / test-db-mock / typecheck / build 复跑（preload 无改动，防手滑 + 与三套测试惯例对齐）。

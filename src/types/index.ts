@@ -37,10 +37,11 @@ export interface ArticleAiTrans {
   model: string;
 }
 
-/** AI 目录产物（v1.4，PLAN-AI-TOC）：纯数据，无 HTML；sections 与全文段落按 idx+head 对位（同 aiTrans 口径）。
- *  head 由 preload 从输入段落补全（AI 不回写）；正文 contentHash 变化 / itemfullx 全文替换连带失效（T-09 同族） */
+/** AI 目录产物（v1.4，PLAN-AI-TOC；PLAN-TOC-LEVEL 增 level）：纯数据，无 HTML；sections 与全文段落按 idx+head 对位（同 aiTrans 口径）。
+ *  head 由 preload 从输入段落补全（AI 不回写）；level=目录层级（1=章 2=子章 2-3=前端 h3/h4，旧数据缺失按 1 平铺读）；
+ *  正文 contentHash 变化 / itemfullx 全文替换连带失效（T-09 同族） */
 export interface ArticleAiToc {
-  sections: { title: string; idx: number; head: string }[]; // title ≤24 字
+  sections: { title: string; idx: number; head: string; level?: 1 | 2 | 3 }[]; // title ≤24 字
   at: number;
   model: string;
 }

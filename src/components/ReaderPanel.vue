@@ -127,6 +127,12 @@ async function runEnrich(bypass = false) {
       if (disp && disp !== it.title) it.titleDisplay = disp; // preload 已写库，此处同步内存
       aiText.value = res.ai.summary || aiText.value;
       aiState.value = "done";
+      // 摘要产物落地后连带生成目录（PLAN-AI-TOC §13）：仅无结构长文且尚无目录（结构文前端
+      // 秒出零增量成本）。必须 await 且先于预取——runToc 入口与 prefetchNext 每步都按单飞
+      // 纪律 abort()，并行起飞互杀；catch 隔离防未来 runToc 抛错把已成功摘要翻成 error 态
+      ensureTocMeta();
+      if (!tocFromHtml.value && tocAiEligible.value && !it.aiToc) await runToc().catch(() => {});
+      if (seq !== aiSeq) return; // 目录生成期间切文：预取随 resetAiStream 作废，不再发起
       if (settings.aiAutoCount > 1) prefetchNext(it._id, settings.aiAutoCount - 1); // 连续摘要：当前完成后向下预取
     } else if (res.aborted || res.error === "ABORTED") {
       // 离开面板的正常中断：有旧产物显示旧产物，否则收起卡片
@@ -166,11 +172,35 @@ const translatable = computed(() => {
 });
 
 /** 正文文本块切分：文档序 p/h1-h6/li/blockquote、文本 ≥10 字；容器块整体取、嵌套块不重复计 */
-function collectParas(): { el: HTMLElement; idx: number; head: string; text: string }[] {
+type ParaBlock = { el: HTMLElement; idx: number; head: string; text: string };
+
+/** 段落枚举缓存（PLAN-PERF-2 §1.1）：以 html.value 为 key——v-html 只换 innerHTML、contentEl
+ *  恒同一元素，html 相同 ⇒ 枚举相同（.ra-trans 是 div 不进选择器，译文插入不改枚举）。
+ *  命中守卫（审核 B-2）：跨源同文 key 逐字节相同但 DOM 已重建，缓存 el 会是脱节死引用
+ *  （jumpTo 校验能过但 scrollIntoView 无效、rect 全 0），contains 校验兜底重算。
+ *  纪律：不得在 html.value 赋值与 DOM patch 之间同步调用 collect*（现有调用点全是
+ *  用户事件或宏任务时点预热，Vue patch 微任务必先完成；新增调用点须保持此前提）。 */
+let parasCache: { html: string; paras: ParaBlock[]; all: ParaBlock[] } = { html: "", paras: [], all: [] };
+function parasCacheValid() {
+  if (parasCache.html !== html.value) return false;
+  if (!parasCache.all.length) return true; // 空枚举：同 key 即有效（all ⊇ paras）
+  return !!contentEl.value?.contains(parasCache.all[0].el);
+}
+function collectParasAllCached(): ParaBlock[] {
+  if (parasCacheValid()) return parasCache.all;
+  parasCache = { html: html.value, paras: collectParas(), all: collectParasAll() };
+  return parasCache.all;
+}
+function collectParasCached(): ParaBlock[] {
+  collectParasAllCached(); // 两个口径同一次 DOM 扫描时机一起填充
+  return parasCache.paras;
+}
+
+function collectParas(): ParaBlock[] {
   const root = contentEl.value;
   if (!root) return [];
   const nodes = Array.from(root.querySelectorAll("p,h1,h2,h3,h4,h5,h6,li,blockquote")) as HTMLElement[];
-  const out: { el: HTMLElement; idx: number; head: string; text: string }[] = [];
+  const out: ParaBlock[] = [];
   let total = 0;
   for (const el of nodes) {
     if (el.parentElement?.closest("p,h1,h2,h3,h4,h5,h6,li,blockquote")) continue;
@@ -188,7 +218,7 @@ const TRANS_CLASS = "ra-trans";
 /** 译文插入：createElement+textContent（纯文本节点，绝不 innerHTML——安全基线）；head 不匹配段跳过防错位 */
 function insertTranslations(paras: { idx: number; head: string; text: string }[]) {
   removeTranslations();
-  const blocks = collectParas();
+  const blocks = collectParasCached();
   let inserted = 0;
   for (const p of paras) {
     const b = blocks[p.idx];
@@ -218,7 +248,7 @@ async function runTranslate(bypass = false) {
     insertTranslations(it.aiTrans.paras);
     return;
   }
-  const paras = collectParas().map(({ el, ...rest }) => rest);
+  const paras = collectParasCached().map(({ el, ...rest }) => rest);
   if (!paras.length) {
     ui.toast("没有可翻译的段落");
     return;
@@ -292,7 +322,7 @@ const TOC_MIN_HEADINGS = 2; // 结构标题达到此数走前端目录（不花�
 const TOC_MIN_CHARS = 1500; // 无结构正文达到此长度才提供 AI 生成
 
 const tocState = ref<"idle" | "loading" | "done">("idle"); // 失败由 toast 承担，不留挂死按钮态
-const tocHeadings = ref<{ title: string; idx: number; head: string }[]>([]); // 前端结构目录（h2-h4）
+const tocHeadings = ref<{ title: string; idx: number; head: string; level: 1 | 2 | 3 }[]>([]); // 前端结构目录（h2-h4，level=层级归一）
 const tocParasCount = ref(0); // 全文段落数（AI 目录覆盖率分母）
 const tocFullChars = ref(0); // 全文段落总字数（AI 门槛口径）
 const tocCurrentIdx = ref(-1); // 当前章（面板打开时算一次，不做持续跟踪）
@@ -303,11 +333,11 @@ const wheelBall = computed(() => wheelRef.value?.ballEl ?? null);
 let tocSeq = 0; // 过期响应守卫（同 aiSeq/trSeq）
 
 /** 全文段落枚举（目录锚点口径）：同 collectParas 切分，去掉 10 段/4000 字双上限——目录要覆盖全文 */
-function collectParasAll(): { el: HTMLElement; idx: number; head: string; text: string }[] {
+function collectParasAll(): ParaBlock[] {
   const root = contentEl.value;
   if (!root) return [];
   const nodes = Array.from(root.querySelectorAll("p,h1,h2,h3,h4,h5,h6,li,blockquote")) as HTMLElement[];
-  const out: { el: HTMLElement; idx: number; head: string; text: string }[] = [];
+  const out: ParaBlock[] = [];
   for (const el of nodes) {
     if (el.parentElement?.closest("p,h1,h2,h3,h4,h5,h6,li,blockquote")) continue;
     const text = (el.innerText || "").replace(/\s+/g, " ").trim();
@@ -318,14 +348,57 @@ function collectParasAll(): { el: HTMLElement; idx: number; head: string; text: 
   return out;
 }
 
+/** 目录元信息惰性化（PLAN-PERF-2 §1.2，审核 B-1）：key 幂等——tocMetaKey === html 即短路，
+ *  吸收一切时序错位（html="" → await getItemFull 空窗内预热跑空也无害：正文落地后 key 必变，
+ *  下次 ensure 自愈；布尔 dirty 会在空窗被清脏导致整篇恒空，勿改回）。 */
+let tocMetaKey: string | null = null;
+let tocWarmup: { ric: number; timer: number } = { ric: 0, timer: 0 };
+
+function ensureTocMeta() {
+  if (tocMetaKey === html.value) return;
+  tocMetaKey = html.value;
+  refreshTocMeta();
+}
+/** 空闲预热：rIC 带 800ms timeout（空闲不调也强制调）；无 rIC 环境（IAB 等）退 setTimeout。
+ *  句柄存模块变量，切文/卸载取消（审核 S-7：晚到预热对已换文组件跑空扫描，脏且叠跑）。 */
+function scheduleTocWarmup() {
+  cancelTocWarmup();
+  const run = () => {
+    tocWarmup.ric = 0;
+    tocWarmup.timer = 0;
+    ensureTocMeta();
+  };
+  if (typeof requestIdleCallback === "function") {
+    tocWarmup.ric = requestIdleCallback(run, { timeout: 800 });
+  } else {
+    tocWarmup.timer = window.setTimeout(run, 800);
+  }
+}
+function cancelTocWarmup() {
+  if (tocWarmup.ric) cancelIdleCallback(tocWarmup.ric);
+  if (tocWarmup.timer) clearTimeout(tocWarmup.timer);
+  tocWarmup = { ric: 0, timer: 0 };
+}
+
 /** 目录元信息刷新（正文 DOM 就绪后调用）：结构标题 + 段落数/字数（门槛与覆盖率口径） */
+const TAG_RANK: Record<string, number> = { H2: 0, H3: 1, H4: 2 }; // h1 不收（文章大标题，无导航意义）
 function refreshTocMeta() {
-  const all = collectParasAll();
+  const all = collectParasAllCached();
   tocParasCount.value = all.length;
   tocFullChars.value = all.reduce((n, b) => n + b.text.length, 0);
-  tocHeadings.value = all
-    .filter((b) => /^H[234]$/.test(b.el.tagName))
-    .map((b) => ({ title: b.text.slice(0, 60), idx: b.idx, head: b.head }));
+  // 层级归一（PLAN-TOC-LEVEL 审核S-3）：实际出现的标签秩排序后做序号映射 1..n——
+  // 纯 min 平移下 h2+h4 混合（无 h3）会产生「无父级的 lv3」缩进孤儿，序号映射压缩缺口
+  const heads = all.filter((b) => TAG_RANK[b.el.tagName] !== undefined);
+  const lvOf: Record<number, 1 | 2 | 3> = {};
+  [...new Set(heads.map((b) => TAG_RANK[b.el.tagName]))]
+    .sort((a, b) => a - b)
+    .forEach((r, i) => (lvOf[r] = (i + 1) as 1 | 2 | 3));
+  tocHeadings.value = heads.map((b) => ({
+    title: b.text.slice(0, 60),
+    idx: b.idx,
+    head: b.head,
+    level: lvOf[TAG_RANK[b.el.tagName]] ?? 1,
+  }));
 }
 
 const tocFromHtml = computed(() => tocHeadings.value.length >= TOC_MIN_HEADINGS);
@@ -346,6 +419,7 @@ const hasSummary = computed(() => !!item.value?.ai?.summary);
 
 /** 面板打开：定位当前章（原顶栏按钮 toggleAiPanel 拆出；轮盘目录项与面板路径共用） */
 function openAiPanel() {
+  ensureTocMeta(); // 惰性元信息兜底（IAB 节流下预热可能未跑，审核 M-1 路径）
   aiPanelOpen.value = true;
   markCurrentSection(tocEntries.value);
 }
@@ -381,6 +455,7 @@ function onWheelTrans() {
 }
 
 async function onWheelToc() {
+  ensureTocMeta(); // 分支判定依赖 tocEntries/tocAiEligible：先兜底，防「AI 直达生成」误降级为开面板
   // AI 关/短文/已有/生成中一律开面板（文案、列表、进度各自呈现）；B1：AI 关不得进 runToc（tocAiEligible 不含 aiEnabled）
   if (tocEntries.value.length || tocState.value === "loading" || !tocAiEligible.value || !settings.aiEnabled) {
     openAiPanel();
@@ -399,7 +474,7 @@ function markCurrentSection(sections: { idx: number }[]) {
   if (!sc || !sections.length) return;
   const scTop = sc.getBoundingClientRect().top;
   const anchorLine = sc.scrollTop + sc.clientHeight * 0.3;
-  const blocks = collectParasAll();
+  const blocks = collectParasAllCached();
   let cur = -1;
   for (const s of sections) {
     const b = blocks[s.idx];
@@ -416,7 +491,13 @@ async function runToc(bypass = false) {
   window.airss.ai.abort();
   const seq = ++tocSeq;
   tocState.value = "loading";
-  const paras = collectParasAll().map((b) => ({ idx: b.idx, head: b.head, text: b.text.slice(0, 200) })); // 纯字面量数组，IPC 安全
+  ensureTocMeta(); // 段落枚举走缓存：先对齐 key（正文落地即算过则零成本）
+  const paras = collectParasAllCached().map((b) => ({
+    idx: b.idx,
+    head: b.head,
+    text: b.text.slice(0, 200),
+    tag: /^H[1-6]$/.test(b.el.tagName) ? b.el.tagName.toLowerCase() : undefined, // h1-h6 结构标记（PLAN-TOC-LEVEL）：AI 输入行 # 前缀
+  })); // 纯字面量数组，IPC 安全
   try {
     const res = await window.airss.ai.generateToc(it._id, paras, { bypass });
     if (seq !== tocSeq) return; // 已切文/重开
@@ -444,7 +525,7 @@ async function runToc(bypass = false) {
 
 /** 目录跳转：head 严格校验（同译文对位口径）；失配=正文已更新 → 失效提示回生成态，不留死按钮 */
 function jumpTo(idx: number, head: string) {
-  const b = collectParasAll()[idx];
+  const b = collectParasAllCached()[idx];
   if (!b || b.head !== head) {
     if (item.value) item.value.aiToc = undefined;
     tocState.value = "idle";
@@ -461,6 +542,8 @@ function jumpTo(idx: number, head: string) {
 /** 目录状态复位（切文/卸载/全文替换三路径共用；面板 Teleport 到 body 不随 reader 卸载，必须强关） */
 function resetToc() {
   tocSeq += 1;
+  tocMetaKey = null; // 元信息 key 与 refs 同步复位：同文重进（A→B→A，html 字符串相同）时
+  // key 命中短路会让已清空的 tocHeadings 恒空（2026-09-09 回归实锤：面板误报「文章较短」）
   tocState.value = "idle";
   tocHeadings.value = [];
   tocParasCount.value = 0;
@@ -485,7 +568,7 @@ async function maybeExtractFull(id: string) {
     resetTrans();
     resetToc();
     await nextTick();
-    refreshTocMeta();
+    scheduleTocWarmup(); // 新全文的元信息：惰性重算（key 已随 html 变化）
     contentEl.value?.querySelectorAll("img").forEach((img) => {
       img.setAttribute("loading", "lazy");
       img.setAttribute("referrerpolicy", "no-referrer");
@@ -527,6 +610,7 @@ watch(
   () => ui.readerItemId,
   async (id, oldId) => {
     cancelPosSave();
+    cancelTocWarmup(); // 旧文的空闲预热作废（晚到会对新文跑空扫描，审核 S-7）
     if (oldId && scrollEl.value) {
       window.airss.ai.abort(); // 切换/关闭：中断进行中的流（aborted 不记 error）
       // 切走前立即落盘旧文进度（此刻 DOM 仍是旧文，比例有效；reader 常驻的切换场景）
@@ -563,8 +647,8 @@ watch(
       img.setAttribute("loading", "lazy");
       img.setAttribute("referrerpolicy", "no-referrer");
     });
-    // 目录：前端元信息现算 + item 层已有 AI 目录直接进 done 态
-    refreshTocMeta();
+    // 目录：惰性元信息（空闲预热，消费入口 ensureTocMeta 兜底）+ item 层已有 AI 目录直接进 done 态
+    scheduleTocWarmup();
     tocState.value = item.value?.aiToc?.sections?.length ? "done" : "idle";
     // 已有缓存的译文直接展示（v1.2：翻过的文章重进即见，不耗额度；随 AI 总开关门控）
     if (settings.aiEnabled && item.value?.aiTrans?.paras?.length) {
@@ -584,6 +668,7 @@ watch(
 
 onBeforeUnmount(() => {
   window.airss.ai.abort();
+  cancelTocWarmup(); // 卸载兜底：父级 v-if 同周期卸载的 watcher 会被跳过，目录状态与预热句柄必须自清
   resetToc(); // 卸载兜底：父级 v-if 同周期卸载的 watcher 会被跳过，面板与目录状态必须自清
   cancelPosSave();
   // 卸载兜底：此刻 ui.readerItemId 可能已被置 null（关闭路径），用 lastReaderId

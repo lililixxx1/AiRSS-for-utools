@@ -197,7 +197,7 @@ function clearLogs() {
         <div class="st-row">
           <div>
             <span class="st-label">AI 摘要与标题增强</span>
-            <p class="st-note">默认关闭；开启后打开文章自动生成中文摘要与标签，刷新后自动为新文章补标题</p>
+            <p class="st-note">默认关闭；开启后按下方「自动摘要」档位自动处理（打开文章/预取/刷新补标题标签），关闭档位时逐篇手动</p>
           </div>
           <button class="switch" :class="{ on: settings.aiEnabled }" role="switch" :aria-checked="settings.aiEnabled" @click="setAiEnabled(!settings.aiEnabled)">
             <span class="dot"></span>
@@ -215,7 +215,7 @@ function clearLogs() {
         <div class="st-row">
           <div>
             <span class="st-label">自动摘要</span>
-            <p class="st-note">阅读时自动为当前及后续文章生成摘要（预取走 AI 额度）；关闭则逐篇显示手动 AI 按钮</p>
+            <p class="st-note">阅读时自动为当前及后续文章生成摘要（预取走 AI 额度）；关闭则逐篇显示手动 AI 按钮，刷新/新订阅也不再自动补标题/标签</p>
           </div>
           <DropdownSelect
             :model-value="settings.aiAutoCount"

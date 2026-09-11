@@ -266,6 +266,9 @@ async function getItemFullBest(itemId) {
 /**
  * 保留策略：每源最近 keep 篇（pubTs 序）+ 星标豁免；分片删除连带 itemfull。
  * 删除前逐条 get 复查 starred（防清理批与星标操作交错误删，PLAN §4）。
+ * 等价口径（与渲染层 data.ts refreshDue 的按需预筛互指，PLAN-PERF-2 §2.2）：
+ *   doomed 长度 = max(0, 该源 !starred 计数 − keep)——filter(!starred) 必须先于 sort/slice；
+ *   若改为「全量排序后 slice 再豁免星标」，渲染层判据（!starred 计数 > keep）会漂移成常态漏调。
  */
 async function retentionClean(feedDoc, keep) {
   const items = await itemsOfFeed(feedDoc._id);

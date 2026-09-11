@@ -276,8 +276,8 @@ export function installMock() {
         window.airss.log.info("ai.translate", "译文回写（mock）", { itemId, paras: aiTrans.paras.length });
         return { ok: true, aiTrans, cached: false, error: null };
       },
-      /** AI 目录（v1.4）：按段落数均分 3~5 节 mock 目录，同 translateItem 形态回写 localStorage */
-      async generateToc(itemId: string, paras: { idx: number; head: string; text: string }[], opts: { bypass?: boolean } = {}) {
+      /** AI 目录（v1.4；PLAN-TOC-LEVEL 两级）：按段落数均分 3~5 节 mock 目录，第 2 章后插一子章演示层级 */
+      async generateToc(itemId: string, paras: { idx: number; head: string; text: string; tag?: string }[], opts: { bypass?: boolean } = {}) {
         const d = load();
         const it: any = d.items.find((x) => x._id === itemId);
         if (!it) return { ok: false, aiToc: null, cached: false, error: "NOT_FOUND" };
@@ -288,8 +288,14 @@ export function installMock() {
         const step = Math.max(1, Math.floor(paras.length / n));
         const sections: any[] = [];
         for (let i = 0; i < paras.length && sections.length < n; i += step) {
-          sections.push({ title: `第${sections.length + 1}部分 · mock 目录`, idx: paras[i].idx, head: paras[i].head });
+          sections.push({ title: `第${sections.length + 1}部分 · mock 目录`, idx: paras[i].idx, head: paras[i].head, level: 1 });
         }
+        // 子章候选 idx 必须未被任何章占用（paras 3~5 段时 step=1 三章占连续 idx，「下一段」会撞 kind+idx key；撞则不插。
+        // 段数过少（如单段）时上限循环只产 1 章，锚点退守首章防 sections[1] 越界——2026-09-11 审核必改）
+        const used = new Set(sections.map((s) => s.idx));
+        const anchor = sections[1] ?? sections[0];
+        const sub = anchor && paras.find((p) => p.idx > anchor.idx && !used.has(p.idx));
+        if (sub) sections.splice(Math.min(2, sections.length), 0, { title: `子节 · mock`, idx: sub.idx, head: sub.head, level: 2 });
         const aiToc = { sections, at: Date.now(), model: "mock" };
         it.aiToc = aiToc;
         save(d);

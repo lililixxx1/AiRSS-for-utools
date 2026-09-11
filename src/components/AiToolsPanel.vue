@@ -13,7 +13,7 @@ const props = defineProps<{
   open: boolean;
   triggerEl: HTMLElement | null;
   aiEnabled: boolean;
-  tocEntries: { title: string; idx: number; head: string; kind: "html" | "ai" }[];
+  tocEntries: { title: string; idx: number; head: string; level?: 1 | 2 | 3; kind: "html" | "ai" }[];
   tocFromHtml: boolean;
   tocAiEligible: boolean;
   tocCoverPercent: number;
@@ -70,8 +70,11 @@ function onDocDown(e: MouseEvent) {
   if (panelRef.value?.contains(t) || props.triggerEl?.contains(t)) return;
   emit("close");
 }
-function onWinScroll() {
-  emit("close"); // 面板 fixed 不随滚动移动；关闭比重算便宜（同 DropdownSelect）
+function onWinScroll(e: Event) {
+  // 只对「面板外」滚动关闭（fixed 面板不随正文滚动移动）；面板自身列表滚动（长目录滚轮）不关——
+  // scroll 不冒泡但 window 捕获监听收得到任何元素的滚动，不判 target 长目录一滚即被关（2026-09 实测）
+  if (e.target instanceof Node && panelRef.value?.contains(e.target)) return;
+  emit("close");
 }
 function onKeydown(e: KeyboardEvent) {
   if (e.key !== "Escape" || !props.open) return;
@@ -126,7 +129,7 @@ const summaryAction = computed(() => {
               :key="s.kind + ':' + s.idx"
               type="button"
               class="ai-toc-item"
-              :class="{ cur: s.idx === tocCurrentIdx }"
+              :class="['lv' + (s.level ?? 1), { cur: s.idx === tocCurrentIdx }]"
               :title="s.title"
               @click="emit('jump', s.idx, s.head)"
             >
@@ -181,7 +184,7 @@ const summaryAction = computed(() => {
 /* 视觉与 DropdownSelect 面板同族（C17）：bg-panel/border/shadow-2，暗色升一档底 */
 .ai-panel {
   position: fixed; z-index: var(--z-toast); /* 可能出现在弹层（z-modal 600）内，必须高于弹层 */
-  overflow-y: auto;
+  overflow-y: auto; overscroll-behavior: contain; /* 滚到底不再穿透正文（穿透会滚正文触发关闭） */
   background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--r-md);
   box-shadow: var(--shadow-2); padding: 4px;
 }
@@ -195,6 +198,12 @@ html[data-theme="dark"] .ai-panel { background: var(--bg-elevated); }
   font-family: inherit; font-size: 12.5px; color: var(--text-1); text-align: left; cursor: pointer;
   padding: 5px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* 分级缩进（PLAN-TOC-LEVEL）：lv 规则必须在基础 .ai-toc-item 之后、.cur 之前——
+   前者同为 0-1-0 靠源序覆盖 base 档，后者同为 0-2-0 靠源序保证 cur 高亮覆盖 lv 档 */
+.ai-toc-item.lv1 { font-weight: 600; }
+.ai-toc-item.lv1:not(:first-child) { margin-top: 5px; } /* 章级组间分隔 */
+.ai-toc-item.lv2 { padding-left: 22px; font-size: 12px; font-weight: 400; color: var(--text-2); }
+.ai-toc-item.lv3 { padding-left: 36px; color: var(--text-3); }
 .ai-toc-item:hover { background: var(--bg-hover); }
 .ai-toc-item.cur {
   color: var(--accent-deep); font-weight: 600;
