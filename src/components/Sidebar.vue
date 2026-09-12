@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useDataStore } from "../stores/data";
 import { useSettingsStore } from "../stores/settings";
 import { useUiStore } from "../stores/ui";
@@ -13,7 +13,25 @@ const settings = useSettingsStore();
 const ui = useUiStore();
 
 const searchInput = ref<HTMLInputElement | null>(null);
-defineExpose({ focusSearch: () => searchInput.value?.focus() });
+const railSearchInput = ref<HTMLInputElement | null>(null);
+/** Ctrl+F 入口：侧栏展开直focus；折叠态（含窄幅自动折叠）唤起轨内浮层搜索，不再静默落空 */
+function focusSearch() {
+  if (searchInput.value) {
+    searchInput.value.focus();
+    return;
+  }
+  if (collapsed.value) {
+    ui.railSearch = true;
+    nextTick(() => railSearchInput.value?.focus());
+  }
+}
+defineExpose({ focusSearch });
+
+/** 轨内搜索钮：开面板即聚焦（与 focusSearch 的 Ctrl+F 路径行为一致） */
+function toggleRailSearch() {
+  ui.railSearch = !ui.railSearch;
+  if (ui.railSearch) nextTick(() => railSearchInput.value?.focus());
+}
 
 const menuOpenId = ref<string | null>(null);
 const catMenuOpen = ref<string | null>(null);
@@ -160,7 +178,13 @@ onMounted(() => document.addEventListener("click", onDocClick));
 onBeforeUnmount(() => document.removeEventListener("click", onDocClick));
 
 const btnMuted = "sb-btn";
-const collapsed = computed(() => settings.sidebarCollapsed);
+// 折叠态 = 用户设置 ∪ 分离窗窄幅自动（App.vue onWinResize 维护 winNarrow；自动折叠不写设置，拖宽即还原）
+const autoNarrow = computed(() => ui.narrowDetached);
+const collapsed = computed(() => settings.sidebarCollapsed || autoNarrow.value);
+// 侧栏展开时搜索回到常驻输入框，浮层态复位
+watch(collapsed, (c) => {
+  if (!c) ui.railSearch = false;
+});
 </script>
 
 <template>
@@ -175,6 +199,23 @@ const collapsed = computed(() => settings.sidebarCollapsed);
         <div class="brand-sub">智能 RSS 阅读器</div>
       </div>
       <div class="brand-mini" v-else>A</div>
+      <!-- 折叠轨搜索钮：分离窗 removeSubInput 后侧栏搜索框是唯一搜索入口（design-system §7），
+           折叠态（手动/窄幅自动）下用浮层保住该入口，Ctrl+F 同路（focusSearch） -->
+      <button v-if="collapsed" class="icon-btn rail-search-btn" aria-label="搜索" title="搜索" @click="toggleRailSearch"><I.search /></button>
+      <div class="rail-search-panel" v-if="collapsed && ui.railSearch" role="search" aria-label="搜索文章">
+        <span class="search-ico"><I.search /></span>
+        <input
+          ref="railSearchInput"
+          class="search-input"
+          type="text"
+          placeholder="搜索文章..."
+          :value="data.search"
+          @input="data.setSearch(($event.target as HTMLInputElement).value)"
+          @keydown.esc.stop.prevent="ui.railSearch = false"
+          aria-label="搜索文章"
+        />
+        <span class="kbd">Esc</span>
+      </div>
 
       <!-- 搜索 -->
       <div class="search-wrap" v-if="!collapsed">
@@ -299,7 +340,8 @@ const collapsed = computed(() => settings.sidebarCollapsed);
       <template v-else>
         <button class="icon-btn" aria-label="导入OPML" title="导入OPML" @click="pickOpml()"><I.upload /></button>
         <button class="icon-btn" aria-label="设置" title="设置" @click="ui.openSettings()"><I.settings /></button>
-        <button class="icon-btn" aria-label="展开侧栏" title="展开侧栏" @click="toggleCollapse"><I.chevronRight /></button>
+        <!-- 窄幅自动折叠时藏起展开钮：点了也不会展开（窗口装不下），留死键不如不给；拖宽窗口自动还原 -->
+        <button v-if="!autoNarrow" class="icon-btn" aria-label="展开侧栏" title="展开侧栏" @click="toggleCollapse"><I.chevronRight /></button>
       </template>
       <input ref="opmlFileInput" type="file" accept=".xml,.opml,text/xml,text/x-opml" hidden @change="onOpmlFile" />
     </div>
@@ -333,6 +375,19 @@ const collapsed = computed(() => settings.sidebarCollapsed);
   display: flex; align-items: center; justify-content: center;
   font-weight: 700; font-size: 15px; margin-bottom: 12px;
 }
+/* 折叠轨搜索钮：与 brand-mini 同宽轨内排布 */
+.rail-search-btn { margin-bottom: 12px; }
+/* 轨内浮层搜索面板：fixed 逃脱侧栏 overflow:hidden（C17 弹层纪律，原生层不参与）；
+   紧贴轨右侧、与搜索钮（16 顶距 + 28 logo + 12 间距 = 56）对齐 */
+.rail-search-panel {
+  position: fixed; top: 56px; left: 72px; z-index: var(--z-dropdown);
+  width: min(240px, calc(100vw - 80px));
+  background: var(--bg-panel); border: 1px solid var(--border-strong); border-radius: var(--r-md);
+  box-shadow: var(--shadow-2); height: 36px;
+  display: flex; align-items: center; gap: 8px; padding: 0 8px 0 10px;
+}
+html[data-theme="dark"] .rail-search-panel { background: var(--bg-elevated); }
+.rail-search-panel:focus-within { border-color: transparent; box-shadow: 0 0 0 2px var(--focus-ring); }
 
 .search-wrap {
   position: relative; margin-top: 16px;

@@ -202,9 +202,10 @@ defineExpose({ ballEl: ballRef, close: closeWheel });
 </template>
 
 <style scoped>
-/* 容器：pointer-events:none 不挡正文，仅球与展开态项可交互；absolute 于 .reader（detached 同成立） */
+/* 容器：pointer-events:none 不挡正文，仅球与展开态项可交互；absolute 于 .reader-body
+   （ReaderPanel 正文区，底栏之外）——bottom:12 恒在底栏上缘之上，底栏窄列换行 52→77px 无需测高跟随 */
 .ai-wheel {
-  position: absolute; right: 20px; bottom: 64px; width: 44px; height: 44px;
+  position: absolute; right: 20px; bottom: 12px; width: 44px; height: 44px;
   z-index: var(--z-sticky); pointer-events: none;
 }
 

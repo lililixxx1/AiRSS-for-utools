@@ -709,6 +709,8 @@ const fontLabels = ["14", "16", "18", "22"];
 
 <template>
   <section class="reader" :class="{ detached: ui.detached }" role="region" aria-label="阅读面板">
+    <!-- 正文区（顶栏+滚动区）：相对定位容器，AI 悬浮球锚于此——底栏换行变高（窄阅读列 52→77px）时球自然上移，无需 JS 测高 -->
+    <div class="reader-body">
     <!-- 顶栏 -->
     <header class="reader-top">
       <button v-if="!ui.detached" class="btn btn-ghost btn-sm" @click="ui.closeReader()">
@@ -753,20 +755,8 @@ const fontLabels = ["14", "16", "18", "22"];
       </article>
     </div>
 
-    <!-- 底部操作条 -->
-    <footer class="reader-bar" v-if="item">
-      <button class="btn btn-ghost btn-sm" :class="{ 'is-on': item.read }" @click="data.markRead(item, !item.read)">
-        <I.check />{{ item.read ? "已读" : "标为已读" }}
-      </button>
-      <button class="btn btn-ghost btn-sm" :class="{ 'is-on': item.starred }" @click="data.toggleStar(item)">
-        <I.bookmarkFilled v-if="item.starred" /><I.bookmark v-else />{{ item.starred ? "已收藏" : "收藏" }}
-      </button>
-      <div class="flex1"></div>
-      <button class="btn btn-ghost btn-sm" @click="copyLink"><I.copy />复制链接</button>
-      <button class="btn btn-ghost btn-sm" @click="openOriginal"><I.externalLink />浏览器打开</button>
-    </footer>
-
-    <!-- AI 悬浮轮盘（v1.5）：右下悬浮球，hover 展开摘要/翻译/目录，点击直达；详情态开下方面板 -->
+    <!-- AI 悬浮轮盘（v1.5）：右下悬浮球，hover 展开摘要/翻译/目录，点击直达；详情态开下方面板。
+         锚定 .reader-body（底栏之外），bottom:12 恒在底栏上缘之上 -->
     <AiWheel
       v-if="item"
       ref="wheelRef"
@@ -784,6 +774,20 @@ const fontLabels = ["14", "16", "18", "22"];
       @toc="onWheelToc"
       @close-panel="aiPanelOpen = false"
     />
+    </div>
+
+    <!-- 底部操作条（wrap 仅窄阅读列生效，正文区高度自动让位） -->
+    <footer class="reader-bar" v-if="item">
+      <button class="btn btn-ghost btn-sm" :class="{ 'is-on': item.read }" @click="data.markRead(item, !item.read)">
+        <I.check />{{ item.read ? "已读" : "标为已读" }}
+      </button>
+      <button class="btn btn-ghost btn-sm" :class="{ 'is-on': item.starred }" @click="data.toggleStar(item)">
+        <I.bookmarkFilled v-if="item.starred" /><I.bookmark v-else />{{ item.starred ? "已收藏" : "收藏" }}
+      </button>
+      <div class="flex1"></div>
+      <button class="btn btn-ghost btn-sm" @click="copyLink"><I.copy />复制链接</button>
+      <button class="btn btn-ghost btn-sm" @click="openOriginal"><I.externalLink />浏览器打开</button>
+    </footer>
 
     <!-- AI 工具面板：目录/摘要/翻译三区（Teleport 到 body，状态全由本组件透传；由轮盘目录项打开，底部触发向上翻转） -->
     <AiToolsPanel
@@ -825,6 +829,8 @@ const fontLabels = ["14", "16", "18", "22"];
   height: 52px; flex-shrink: 0; display: flex; align-items: center; gap: 8px;
   padding: 0 12px; border-bottom: 1px solid var(--border);
 }
+/* 正文区容器（顶栏+滚动区）：AI 悬浮球的定位锚——与底栏互斥，底栏窄阅读列换行变高时球自然上移 */
+.reader-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .flex1 { flex: 1; }
 
 .font-step { display: flex; align-items: center; border: 1px solid var(--border-strong); border-radius: var(--r-md); overflow: hidden; }
@@ -883,7 +889,10 @@ html[data-theme="dark"] .ra-title { font-size: 22px; }
 .ra-content :deep(td), .ra-content :deep(th) { border: 1px solid var(--border); padding: 6px 10px; }
 
 .reader-bar {
-  height: 52px; flex-shrink: 0; display: flex; align-items: center; gap: 8px;
-  padding: 0 12px; border-top: 1px solid var(--border);
+  /* wrap 仅在窄阅读列（分离窗窄幅 340/280px，四枚文字钮 ~400px 装不下）时生效，
+     正常宽度单行不变；高度随之让 auto，min-height 保住正常态 52px 视觉 */
+  min-height: 52px; flex-shrink: 0; flex-wrap: wrap; align-content: center;
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; border-top: 1px solid var(--border);
 }
 </style>

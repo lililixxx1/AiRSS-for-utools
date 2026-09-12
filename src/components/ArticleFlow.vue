@@ -62,7 +62,7 @@ const SORTS: { key: "newest" | "oldest" | "unread"; label: string }[] = [
 ];
 const sortLabel = computed(() => SORTS.find((s) => s.key === settings.orderBy)?.label || "最新发布");
 
-/** 分离窗列表列仅 360–400px：工具栏降为图标态（文字进 title/aria-label），防挤压折行 */
+/** 分离窗列表列 260–400px（窄幅自适应，App.vue .sb-auto）：工具栏降为图标态（文字进 title/aria-label），防挤压折行 */
 const compact = computed(() => ui.detached);
 
 /** 空态判定（muted-empty 先于 all-read：静音清空视图时不得谎称"全部读完"） */
@@ -208,6 +208,10 @@ const emptyKind = computed<null | "first-run" | "no-result" | "category-empty" |
 .toolbar.compact { gap: 6px; }
 .toolbar.compact .tb-left, .toolbar.compact .tb-right { gap: 6px; }
 .tb-title { font-size: 16px; font-weight: 650; max-width: 200px; }
+/* 极窄档（≤704，列表列 260–360px）标题进一步收紧给图标钮腾位；宽分离窗保留 200px 勿截断 */
+@media (max-width: 704px) {
+  .toolbar.compact .tb-title { max-width: 120px; }
+}
 .tb-progress { font-size: 12px; color: var(--text-3); }
 .spin svg { animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

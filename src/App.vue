@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue";
 import Sidebar from "./components/Sidebar.vue";
 import ArticleFlow from "./components/ArticleFlow.vue";
 import ReaderPanel from "./components/ReaderPanel.vue";
@@ -66,6 +66,16 @@ watchEffect(() => {
   document.documentElement.style.setProperty("--reading-fs", FONT_STEPS[settings.fontLevel] ?? "16px");
 });
 
+// ---- 分离窗窄幅自适应（2026-09-11 实机：默认尺寸只剩两列，阅读列被裁出画）----
+// 三栏最小宽 280+360+440=1080；窗口更窄时侧栏自动降为 64px 图标轨、列表/阅读列最低宽下调
+// （CSS 见 .app.detached.sb-auto），三栏恒可见。只影响展示，不写 sidebarCollapsed 设置，拖宽即还原
+const SB_NARROW_AT = 1080;
+function onWinResize() {
+  ui.winNarrow = window.innerWidth < SB_NARROW_AT;
+}
+const sbAuto = computed(() => ui.narrowDetached);
+const sbCollapsedEff = computed(() => settings.sidebarCollapsed || sbAuto.value);
+
 function wireUtools() {
   utools.onPluginEnter(({ code, payload }) => {
     if (!data.loaded) initData();
@@ -84,6 +94,7 @@ function wireUtools() {
 
   utools.onPluginDetach(() => {
     ui.detached = true;
+    onWinResize(); // 防御：若宿主分离时复用渲染器且不派发 resize，主动重算窄幅（否则携带主窗宽度的旧值）
     try {
       utools.removeSubInput(); // 分离窗无宿主子输入框
     } catch {
@@ -216,6 +227,8 @@ onMounted(() => {
   wireUtools();
   initData();
   document.addEventListener("keydown", onKeydown);
+  onWinResize();
+  window.addEventListener("resize", onWinResize);
 
   // dev only：mock 层状态直达事件（uTools 内不会触发）
   window.addEventListener("airss-mock-view", (e) => {
@@ -229,11 +242,14 @@ onMounted(() => {
     }
   });
 });
-onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
+onBeforeUnmount(() => {
+  document.removeEventListener("keydown", onKeydown);
+  window.removeEventListener("resize", onWinResize);
+});
 </script>
 
 <template>
-  <div class="app" :class="{ detached: ui.detached, 'sb-collapsed': settings.sidebarCollapsed }">
+  <div class="app" :class="{ detached: ui.detached, 'sb-collapsed': sbCollapsedEff, 'sb-auto': sbAuto }">
     <Sidebar ref="sidebarRef" />
 
     <!-- 内容列（小窗：唯一主列，覆盖层承载阅读/设置） -->
@@ -334,6 +350,20 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 }
 .app.detached.sb-collapsed {
   grid-template-columns: 64px minmax(360px, 400px) 1fr;
+}
+/* 分离窗窄幅（视口 <1080）：三栏最小宽 280+360+440=1080 装不下，阅读列被 overflow:hidden
+   裁出画（2026-09-11 实机：最大化三列正常，调回默认尺寸只剩两列）。侧栏自动降 64px 图标轨、
+   列表/阅读列最低宽下调，三栏恒可见。同特异度按源序覆盖，规则必须排在 .sb-collapsed 之后；
+   .reader-col 的 min-width 必须同步下调（track 定长 min 不吃 item min-width，二者不一致会溢出轨道） */
+.app.detached.sb-auto {
+  grid-template-columns: 64px minmax(300px, 400px) minmax(340px, 1fr);
+}
+.app.detached.sb-auto .reader-col { min-width: 340px; }
+@media (max-width: 704px) {
+  /* 极窄（≤704）：上一档地板 64+300+340=704 装不下时再压一档（地板 64+260+280=604；
+     列表列下限取 260 非 240：240 在搜索态+静音透视+长标题组合下 compact 工具栏仍溢出 8px） */
+  .app.detached.sb-auto { grid-template-columns: 64px minmax(260px, 360px) minmax(280px, 1fr); }
+  .app.detached.sb-auto .reader-col { min-width: 280px; }
 }
 /* grid 子项不写 height:100%：靠默认 align-self:stretch 填满 minmax(0,1fr) 定高轨道。
    2026-09-08 实机：宿主 Chromium 对 grid 子项百分比高度的解析会回落 auto（内容高），
