@@ -106,8 +106,10 @@ function saveWords() {
   settings.set("highlightWords", parse(highlightWordsText.value));
 }
 
-// ---- 诊断日志（AI 截断/抓取失败等实机排查；环形 500 条存本机） ----
+// ---- 诊断日志（AI 截断/抓取失败等实机排查；环形 500 条存本机）----
+// 默认折叠：日常是无用信息，实机排障时点行展开操作
 const logCount = ref(0);
+const logOpen = ref(false);
 
 function refreshLogCount() {
   try {
@@ -138,6 +140,12 @@ function clearLogs() {
   window.airss.log.clear();
   refreshLogCount();
   ui.toast("已清空日志");
+}
+
+// ---- 关于：开源地址（GPL-3.0）----
+const REPO_URL = "https://github.com/lililixxx1/AiRSS-for-utools";
+function openRepo() {
+  window.airss.sys.openExternal(REPO_URL);
 }
 </script>
 
@@ -359,13 +367,16 @@ function clearLogs() {
           <span class="st-label">订阅备份</span>
           <button class="btn btn-secondary btn-sm" @click="exportOpml"><I.download />导出 OPML</button>
         </div>
-        <div class="st-row">
-          <div>
+        <div class="st-row stack">
+          <button class="log-head" type="button" :aria-expanded="logOpen" @click="logOpen = !logOpen">
             <span class="st-label">诊断日志</span>
-            <p class="st-note">AI 摘要 / 抓取问题的排查记录（近 500 条，存本机）</p>
-          </div>
-          <div class="byok-key">
-            <span class="st-value num">{{ logCount }} 条</span>
+            <span class="log-meta">
+              <span class="st-value num">{{ logCount }} 条</span>
+              <I.chevronDown class="chev" :class="{ open: logOpen }" />
+            </span>
+          </button>
+          <p class="st-note">AI 摘要 / 抓取问题的排查记录（近 500 条，存本机）</p>
+          <div v-if="logOpen" class="log-actions">
             <button class="btn btn-ghost btn-sm" @click="copyLogs"><I.copy />复制</button>
             <button class="btn btn-ghost btn-sm" @click="exportLogs"><I.download />导出</button>
             <button class="btn btn-ghost btn-sm" @click="clearLogs">清空</button>
@@ -382,8 +393,12 @@ function clearLogs() {
         <h3>关于</h3>
         <div class="st-row"><span class="st-label">版本</span><span class="st-value num">1.1.0（二期 AI 增强）</span></div>
         <div class="st-row">
-          <span class="st-label">开源说明</span>
-          <span class="st-value">MIT · 数据仅存本机（随 uTools 云同步）</span>
+          <span class="st-label">开源地址</span>
+          <button class="repo-link" type="button" @click="openRepo">github.com/lililixxx1/AiRSS-for-utools</button>
+        </div>
+        <div class="st-row">
+          <span class="st-label">开源协议</span>
+          <span class="st-value">GPL-3.0 · 数据仅存本机（随 uTools 云同步）</span>
         </div>
       </div>
     </div>
@@ -432,6 +447,26 @@ function clearLogs() {
 .st-row.stack { flex-direction: column; align-items: stretch; }
 .words-area { width: 100%; height: auto; min-height: 56px; resize: vertical; font-family: inherit; font-size: 13px; line-height: 1.7; padding: 8px 10px; }
 .byok-key { display: flex; align-items: center; gap: 8px; }
+/* 诊断日志折叠头：默认收起，点行展开操作（aria-expanded 同步；reduced-motion 下 base.css 拦截 transform 过渡，瞬时翻转） */
+.log-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: 36px; padding: 2px 6px; margin: 0 -6px;
+  border: none; border-radius: var(--r-md); background: transparent; font-family: inherit; cursor: pointer;
+}
+.log-head:hover { background: var(--bg-hover); }
+.log-head:active { background: var(--bg-active); }
+.log-meta { display: flex; align-items: center; gap: 8px; }
+.log-head .chev { font-size: 14px; color: var(--text-2); transition: transform var(--t-fast) var(--ease-out); }
+.log-head .chev.open { transform: rotate(180deg); }
+.log-actions { display: flex; gap: 8px; padding: 0 0 8px; }
+/* 开源地址：链接样式按钮（令牌取色，无私有 hex；:active 排 :hover 后，源序纪律） */
+.repo-link {
+  border: none; background: transparent; font-family: inherit; font-size: 12px;
+  color: var(--accent-deep); cursor: pointer; padding: 2px 4px; margin: 0 -4px;
+  border-radius: var(--r-sm); text-decoration: underline; text-underline-offset: 2px;
+}
+.repo-link:hover { color: var(--accent-strong); }
+.repo-link:active { color: var(--accent-active); background: var(--bg-active); }
 .st-note.warn { color: var(--danger-text); }
 /* .switch 全局类在 base.css（PLAN-POLISH D3 提取） */
 </style>
