@@ -135,18 +135,5 @@ html[data-theme="dark"] .modal { background: var(--bg-elevated); border-color: v
 .field-hint { display: block; font-size: 11px; font-weight: 400; color: var(--text-3); margin-top: 2px; max-width: 280px; line-height: 1.5; }
 .row-switch { flex-direction: row; align-items: center; justify-content: space-between; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 0 16px 14px; }
-
-.switch {
-  width: 36px; height: 20px; border-radius: var(--r-full);
-  background: var(--bg-active); border: none; position: relative; cursor: pointer;
-  transition: background var(--t-med) var(--ease-out);
-}
-html[data-theme="dark"] .switch { background: var(--border-strong); }
-.switch.on { background: var(--accent-strong); }
-.switch .dot {
-  position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
-  border-radius: 50%; background: #fff;
-  transition: transform var(--t-med) var(--ease-out);
-}
-.switch.on .dot { transform: translateX(16px); }
+/* .switch 全局类在 base.css（PLAN-POLISH D3 提取） */
 </style>

@@ -859,6 +859,7 @@ const fontLabels = ["14", "16", "18", "22"];
   font-family: inherit; font-size: 12px; color: var(--text-2); cursor: pointer;
 }
 .fs-btn:hover:not(:disabled) { background: var(--bg-card-hover); }
+.fs-btn:active:not(:disabled) { background: var(--bg-active); }
 .fs-btn:disabled { color: var(--text-disabled); cursor: default; }
 /* AI 任务呼吸点已随顶栏按钮迁入 AiWheel 悬浮球（绝对定位版） */
 /* 目录跳转锚段：滚动定位时避开顶部区域（h2-h4 即前端目录条目所属块） */
@@ -877,10 +878,10 @@ const fontLabels = ["14", "16", "18", "22"];
 .ra-title { font-size: 22px; font-weight: 700; line-height: 1.35; color: var(--text-1); }
 html[data-theme="dark"] .ra-title { font-size: 22px; }
 .ai-mark {
-  display: inline-block; vertical-align: 4px; margin-left: 8px;
+  display: inline-block; vertical-align: 4px; margin-left: 6px;
   font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
   color: var(--accent-deep); border: 1px solid var(--accent-deep);
-  border-radius: var(--r-sm); padding: 0 4px; line-height: 16px; opacity: 0.85;
+  border-radius: var(--r-sm); padding: 0 3px; line-height: 14px; opacity: 0.85;
 }
 .ra-orig { margin-top: 6px; font-size: 12.5px; color: var(--text-3); line-height: 1.5; }
 .ra-meta { display: flex; align-items: center; gap: 6px; margin: 12px 0 20px; font-size: 12px; color: var(--text-3); flex-wrap: wrap; }

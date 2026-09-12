@@ -25,6 +25,9 @@
   /* z-index 阶（design-system §3.8） */
   --z-progress: 100; --z-sticky: 200; --z-reader: 300; --z-dropdown: 400;
   --z-scrim: 500; --z-modal: 600; --z-toast: 700; --z-tooltip: 800;
+
+  /* 焦点环阴影（PLAN-POLISH D8：:root 即 html，--focus-ring 在主题块上，切换主题时随之重算继承） */
+  --ring: 0 0 0 2px var(--focus-ring);
 }
 
 html[data-theme="light"] {
@@ -40,6 +43,7 @@ html[data-theme="light"] {
   --text-2: #57534E;
   --text-3: #78716C;
   --text-disabled: #A8A29E;
+  --text-read: #44403C; /* 卡片已读标题（text-1 与 text-2 之间一档；PLAN-POLISH D7，跨配色跟随） */
   --accent: #F97316;
   --accent-hover: #FB8438;
   --accent-active: #F2650C;
@@ -68,6 +72,7 @@ html[data-theme="dark"] {
   --bg-elevated: #282219;
   --bg-hover: #2A241E;
   --bg-card-hover: #26211C;
+  --bg-active: #332C24; /* 按下态底（PLAN-POLISH B0：审核发现原缺——深色惯例 active 比 hover 亮一档，与其余配色块规律一致） */
   --bg-btn-muted: #2A251F;
   --bg-btn-muted-hover: #332C24;
   --bg-selected: #35261A;
@@ -75,6 +80,7 @@ html[data-theme="dark"] {
   --text-2: #B8B0A4;
   --text-3: #928A7D;
   --text-disabled: #6B6459;
+  --text-read: #B8B0A4; /* 卡片已读标题（深色与 text-2 同值，PLAN-POLISH D7） */
   --accent: #FB923C;
   --accent-hover: #FDBA74;
   --accent-active: #F08633;
@@ -111,6 +117,7 @@ html[data-palette="sepia"][data-theme="light"] {
   --text-2: #63523D;
   --text-3: #7E6B52;
   --text-disabled: #A79779;
+  --text-read: #4F412D; /* 卡片已读标题（PLAN-POLISH D7） */
   --accent: #CE6E35;
   --accent-hover: #DA7E48;
   --accent-active: #C46228;
@@ -146,6 +153,7 @@ html[data-palette="sepia"][data-theme="dark"] {
   --text-2: #B5A78D;
   --text-3: #93856B;
   --text-disabled: #6E604A;
+  --text-read: #B5A78D; /* 卡片已读标题（PLAN-POLISH D7） */
   --accent: #E8A75C;
   --accent-hover: #F2BE7E;
   --accent-active: #DC9440;
@@ -182,6 +190,7 @@ html[data-palette="sage"][data-theme="light"] {
   --text-2: #4C5A45;
   --text-3: #63735A;
   --text-disabled: #9BAA90;
+  --text-read: #3B4934; /* 卡片已读标题（PLAN-POLISH D7） */
   --accent: #5CA04E;
   --accent-hover: #6BAD5D;
   --accent-active: #528F41;
@@ -217,6 +226,7 @@ html[data-palette="sage"][data-theme="dark"] {
   --text-2: #AEBFA3;
   --text-3: #8C9D80;
   --text-disabled: #66755B;
+  --text-read: #AEBFA3; /* 卡片已读标题（PLAN-POLISH D7） */
   --accent: #8FC97C;
   --accent-hover: #A5D993;
   --accent-active: #7FBA6B;
@@ -253,6 +263,7 @@ html[data-palette="indigo"][data-theme="light"] {
   --text-2: #48506A;
   --text-3: #666F8C;
   --text-disabled: #98A0B8;
+  --text-read: #38405A; /* 卡片已读标题（PLAN-POLISH D7） */
   --accent: #647CF2;
   --accent-hover: #7B90F5;
   --accent-active: #5870EE;
@@ -288,6 +299,7 @@ html[data-palette="indigo"][data-theme="dark"] {
   --text-2: #AFB5CC;
   --text-3: #8B92AC;
   --text-disabled: #636A85;
+  --text-read: #AFB5CC; /* 卡片已读标题（PLAN-POLISH D7） */
   --accent: #93A7FF;
   --accent-hover: #A9BCFF;
   --accent-active: #8296F2;

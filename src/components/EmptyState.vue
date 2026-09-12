@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { computed } from "vue";
 import { useDataStore } from "../stores/data";
 import { useUiStore } from "../stores/ui";
 import { I } from "./icons";
@@ -14,7 +13,10 @@ const RECOMMENDED = [
   { title: "V2EX", url: "https://www.v2ex.com/index.xml" },
 ];
 
-const urlInput = computed(() => (document.getElementById("empty-url-input") as HTMLInputElement | null));
+/** 首用引导输入框的值（handler 内直取——computed DOM 查询无响应依赖，会在 setup 期读到 null 并永久缓存） */
+function readUrlInput(): string {
+  return (document.getElementById("empty-url-input") as HTMLInputElement | null)?.value ?? "";
+}
 
 async function addRecommended(u: string) {
   ui.modal = { type: "addFeed", presetUrl: u };
@@ -29,8 +31,8 @@ async function addRecommended(u: string) {
       <h3 class="empty-title">从第一个订阅源开始</h3>
       <p class="empty-sub">粘贴一个站点地址，AiRSS 会自动发现它的 Feed</p>
       <div class="url-row">
-        <input id="empty-url-input" class="input" placeholder="example.com 或 https://example.com/feed" @keydown.enter="ui.modal = { type: 'addFeed', presetUrl: urlInput?.value }" />
-        <button class="btn btn-primary" @click="ui.modal = { type: 'addFeed', presetUrl: urlInput?.value }"><I.plus />添加</button>
+        <input id="empty-url-input" class="input" placeholder="example.com 或 https://example.com/feed" @keydown.enter="ui.modal = { type: 'addFeed', presetUrl: readUrlInput() }" />
+        <button class="btn btn-primary" @click="ui.modal = { type: 'addFeed', presetUrl: readUrlInput() }"><I.plus />添加</button>
       </div>
       <p class="or">或从这些源开始</p>
       <div class="chips">
@@ -95,7 +97,8 @@ async function addRecommended(u: string) {
   height: 28px; padding: 0 12px; border-radius: var(--r-full);
   border: 1px solid var(--border-strong); background: transparent;
   font-family: inherit; font-size: 13px; color: var(--text-2); cursor: pointer;
-  transition: all var(--t-fast) var(--ease-out);
+  transition: background-color var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out);
 }
 .chip:hover { background: var(--bg-selected); color: var(--accent-deep); border-color: transparent; }
+.chip:active { background: var(--bg-active); }
 </style>

@@ -408,8 +408,8 @@ function clearLogs() {
 .st-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; padding: 6px 0; border-top: 1px solid var(--border); }
 .st-row:first-of-type { border-top: none; }
 .st-label { font-size: 13px; font-weight: 500; color: var(--text-1); }
-.st-value { font-size: 12.5px; color: var(--text-2); }
-.st-note { font-size: 12.5px; color: var(--text-2); line-height: 1.5; padding: 4px 0 12px; }
+.st-value { font-size: 12px; color: var(--text-2); }
+.st-note { font-size: 12px; color: var(--text-2); line-height: 1.5; padding: 4px 0 12px; }
 
 .seg { display: flex; border: 1px solid var(--border-strong); border-radius: var(--r-md); overflow: hidden; }
 /* 配色 swatch：取色一律走 --p-sw-* 令牌（tokens.css data-palette 块），组件零私有 hex */
@@ -420,11 +420,12 @@ function clearLogs() {
 }
 .seg button {
   height: 32px; padding: 0 12px; border: none; background: transparent;
-  font-family: inherit; font-size: 12.5px; font-weight: 500; color: var(--text-2); cursor: pointer;
+  font-family: inherit; font-size: 13px; font-weight: 500; color: var(--text-2); cursor: pointer;
   display: inline-flex; align-items: center; gap: 6px;
 }
 .seg button:hover { background: var(--bg-hover); }
 .seg button.on { background: var(--bg-selected); color: var(--accent-deep); }
+.seg button:active { background: var(--bg-active); }
 
 .sel { width: 160px; height: 32px; }
 .txt { width: 220px; height: 32px; }
@@ -432,13 +433,5 @@ function clearLogs() {
 .words-area { width: 100%; height: auto; min-height: 56px; resize: vertical; font-family: inherit; font-size: 13px; line-height: 1.7; padding: 8px 10px; }
 .byok-key { display: flex; align-items: center; gap: 8px; }
 .st-note.warn { color: var(--danger-text); }
-.switch {
-  width: 36px; height: 20px; border-radius: var(--r-full);
-  background: var(--bg-active); border: none; position: relative; cursor: pointer; flex-shrink: 0;
-  transition: background var(--t-med) var(--ease-out);
-}
-html[data-theme="dark"] .switch { background: var(--border-strong); }
-.switch.on { background: var(--accent-strong); }
-.switch .dot { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform var(--t-med) var(--ease-out); }
-.switch.on .dot { transform: translateX(16px); }
+/* .switch 全局类在 base.css（PLAN-POLISH D3 提取） */
 </style>

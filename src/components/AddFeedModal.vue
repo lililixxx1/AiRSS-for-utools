@@ -224,9 +224,8 @@ html[data-theme="dark"] .modal { background: var(--bg-elevated); border-color: v
 .spinner {
   width: 16px; height: 16px; border-radius: 50%;
   border: 2px solid var(--bg-hover); border-top-color: var(--accent-strong);
-  animation: spin 0.8s linear infinite;
+  animation: spin-360 0.9s linear infinite; /* 全局 keyframes（base.css，PLAN-POLISH A7） */
 }
-@keyframes spin { to { transform: rotate(360deg); } }
 
 .probe-log {
   background: var(--bg-hover); border-radius: var(--r-md); padding: 8px 10px;
@@ -241,6 +240,7 @@ html[data-theme="dark"] .modal { background: var(--bg-elevated); border-color: v
   background: transparent; font-family: inherit; text-align: left; cursor: pointer; width: 100%;
 }
 .cand:hover { background: var(--bg-card-hover); }
+.cand:active { background: var(--bg-active); }
 .cand[aria-selected="true"] { background: var(--bg-selected); border-color: transparent; color: var(--accent-deep); }
 .cand-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .cand-title { font-size: 13px; font-weight: 500; }

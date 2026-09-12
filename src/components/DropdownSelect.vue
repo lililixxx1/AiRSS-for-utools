@@ -132,23 +132,25 @@ onBeforeUnmount(() => {
   </button>
 
   <Teleport to="body">
-    <div v-if="open" ref="panelRef" class="ddsel-panel" :style="panelStyle" role="listbox" :aria-label="ariaLabel">
-      <button
-        v-for="(o, i) in options"
-        :key="String(o.value)"
-        class="ddsel-item"
-        :data-idx="i"
-        type="button"
-        role="option"
-        :aria-selected="o.value === modelValue"
-        :class="{ hover: i === hoverIdx }"
-        @click="pick(i)"
-        @mousemove="hoverIdx = i"
-      >
-        <span class="ddsel-item-label">{{ o.label }}</span>
-        <I.check v-if="o.value === modelValue" />
-      </button>
-    </div>
+    <Transition name="fade">
+      <div v-if="open" ref="panelRef" class="ddsel-panel" :style="panelStyle" role="listbox" :aria-label="ariaLabel">
+        <button
+          v-for="(o, i) in options"
+          :key="String(o.value)"
+          class="ddsel-item"
+          :data-idx="i"
+          type="button"
+          role="option"
+          :aria-selected="o.value === modelValue"
+          :class="{ hover: i === hoverIdx }"
+          @click="pick(i)"
+          @mousemove="hoverIdx = i"
+        >
+          <span class="ddsel-item-label">{{ o.label }}</span>
+          <I.check v-if="o.value === modelValue" />
+        </button>
+      </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -162,7 +164,8 @@ onBeforeUnmount(() => {
   transition: border var(--t-fast) var(--ease-out), box-shadow var(--t-fast) var(--ease-out);
 }
 .ddsel:hover { background: var(--bg-card-hover); }
-.ddsel:focus-visible { border-color: transparent; box-shadow: 0 0 0 2px var(--focus-ring); outline: none; }
+.ddsel:active { background: var(--bg-active); }
+.ddsel:focus-visible { border-color: transparent; box-shadow: var(--ring); outline: none; }
 .ddsel-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .ddsel-chev { flex-shrink: 0; color: var(--text-3); transition: transform var(--t-fast) var(--ease-out); }
 .ddsel-chev.open { transform: rotate(180deg); }
@@ -177,9 +180,10 @@ html[data-theme="dark"] .ddsel-panel { background: var(--bg-elevated); }
 .ddsel-item {
   display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%;
   height: 32px; padding: 0 10px; border: none; background: transparent; border-radius: var(--r-sm);
-  font-family: inherit; font-size: 12.5px; color: var(--text-1); cursor: pointer; text-align: left;
+  font-family: inherit; font-size: 13px; color: var(--text-1); cursor: pointer; text-align: left;
 }
 .ddsel-item:hover, .ddsel-item.hover { background: var(--bg-hover); }
+.ddsel-item:active { background: var(--bg-active); }
 .ddsel-item[aria-selected="true"] { color: var(--accent-deep); font-weight: 600; }
 .ddsel-item-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

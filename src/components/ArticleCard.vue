@@ -25,6 +25,8 @@ const hlTerms = computed(() => [
 // AI 改写标题（titleNorm>titleZh，设置可关）；tags 与改写标记仅在 AI 开启时展示
 const displayTitle = computed(() => (settings.aiTitle ? props.item.titleDisplay || props.item.title : props.item.title));
 const titleRewritten = computed(() => settings.aiTitle && displayTitle.value !== props.item.title);
+// 高亮切段缓存（PLAN-POLISH C3：模板直调会每次重渲染重跑切词，computed 后仅依赖变化才重算）
+const titleSegs = computed(() => highlightSegments(displayTitle.value, hlTerms.value));
 const aiTags = computed(() => (settings.aiEnabled ? props.item.ai?.tags?.slice(0, 2) || [] : []));
 // 手动 AI 摘要按钮（v1.2：自动摘要关闭时逐篇出现；有摘要/生成中不出现）
 const showAiBtn = computed(() => settings.aiEnabled && settings.aiAutoCount === 0 && !props.item.ai?.summary && !data.aiBusy.has(props.item._id));
@@ -60,7 +62,7 @@ function share() {
         <span v-for="t in aiTags" :key="t" class="tag ai-tag">{{ t }}</span>
       </div>
       <h2 class="title clamp-2" :title="item.title">
-        <template v-for="(seg, si) in highlightSegments(displayTitle, hlTerms)" :key="si"><mark v-if="seg.hit" class="hl">{{ seg.t }}</mark><template v-else>{{ seg.t }}</template></template><span v-if="titleRewritten" class="ai-mark">AI</span>
+        <template v-for="(seg, si) in titleSegs" :key="si"><mark v-if="seg.hit" class="hl">{{ seg.t }}</mark><template v-else>{{ seg.t }}</template></template><span v-if="titleRewritten" class="ai-mark">AI</span>
       </h2>
       <p class="summary clamp-2" v-if="item.summaryText">{{ item.summaryText }}</p>
       <div class="meta">
@@ -90,6 +92,7 @@ function share() {
   transition: background var(--t-fast) var(--ease-out);
 }
 .card:hover { background: var(--bg-card-hover); }
+.card:active { background: var(--bg-active); }
 .card:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
 .banner { display: block; width: 100%; height: 148px; object-fit: cover; background: var(--bg-hover); }
@@ -107,9 +110,8 @@ function share() {
 }
 
 .title { font-size: 16px; font-weight: 600; line-height: 1.4; color: var(--text-1); }
-.card:not(.unread) .title { color: #44403c; font-weight: 550; }
-html[data-theme="dark"] .card:not(.unread) .title { color: var(--text-2); }
-.hl { background: var(--accent-soft); color: var(--accent-deep); border-radius: 2px; padding: 0 1px; }
+.card:not(.unread) .title { color: var(--text-read); font-weight: 550; }
+/* .hl 全局类在 base.css（PLAN-POLISH D2 提取） */
 
 .summary { font-size: 14px; line-height: 1.6; margin-top: 6px; color: var(--text-2); }
 .card:not(.unread) .summary { color: var(--text-3); }
@@ -119,7 +121,7 @@ html[data-theme="dark"] .card:not(.unread) .title { color: var(--text-2); }
 .meta-item.min svg { font-size: 13px; }
 .meta-dot { color: var(--text-3); font-size: 11px; }
 .flex1 { flex: 1; }
-.meta-act { width: 28px; height: 24px; font-size: 15px; color: var(--text-3); }
+.meta-act { width: 28px; height: 24px; font-size: 14px; color: var(--text-3); }
 .meta-act:hover { color: var(--text-1); }
 .meta-act.on { color: var(--accent-deep); }
 </style>

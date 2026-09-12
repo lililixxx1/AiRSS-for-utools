@@ -60,6 +60,7 @@
 | `--text-2` | `#57534E` | 0.44 0.011 74 | 摘要、次要说明、meta | 7.63 / 7.08 |
 | `--text-3` | `#78716C` | 0.55 0.013 58 | 仅白底上的标签、时间戳 | 4.80 (白) |
 | `--text-disabled` | `#A8A29E` | 0.64 0.014 59 | 禁用态（对比豁免） | — |
+| `--text-read` | `#44403C` | — | 卡片已读标题（text-1 与 text-2 之间一档；PLAN-POLISH D7，跨配色跟随） | 10.27 (白) / 9.68 (卡片 hover) |
 | `--accent` | `#F97316` | 0.70 0.191 49 | 品牌橙：徽章/主按钮底/进度渐变/装饰填充 | 2.80 (白) → **仅装饰填充，永不单独承载信息** |
 | `--accent-hover` | `#FB8438` | 0.73 0.177 58 | 主按钮 hover | 配 ink 6.31 |
 | `--accent-active` | `#F2650C` | 0.66 0.205 46 | 主按钮按下 | 配 ink 4.95 |
@@ -87,11 +88,13 @@
 | `--bg-hover` | `#2A241E` | 0.24 0.008 75 | 侧栏条目 hover | — |
 | `--bg-card-hover` | `#26211C` | 0.23 0.008 78 | 列表行 hover | — |
 | `--bg-btn-muted` | `#2A251F` | — | 灰按钮底 | — |
+| `--bg-active` | `#332C24` | — | 按下态底（PLAN-POLISH B0 增补：深色惯例 active 比 hover 亮一档，与其余配色块规律一致） | — |
 | `--bg-selected` | `#35261A` | 0.27 0.030 60 | 选中底（暖橙注入的炭） | — |
 | `--text-1` | `#F2EDE4` | 0.93 0.012 90 | 标题、正文 | 14.51 (panel) / 15.73 (侧栏) |
 | `--text-2` | `#B8B0A4` | 0.78 0.014 90 | 摘要、meta | 7.88 / 8.54 / 7.34 (浮层) |
 | `--text-3` | `#928A7D` | 0.63 0.014 85 | 标签、时间戳 | 4.96 / 5.37 / 4.62 |
 | `--text-disabled` | `#6B6459` | — | 禁用 | — |
+| `--text-read` | `#B8B0A4` | — | 卡片已读标题（深色与 text-2 同值，PLAN-POLISH D7） | 7.88 (panel) |
 | `--accent` | `#FB923C` | 0.75 0.183 56 | 品牌橙（提亮）：文字强调/图标/徽章底 | 7.47 (panel) / 8.10 (侧栏) / 6.43 (选中底) |
 | `--accent-hover` | `#FDBA74` | 0.79 0.150 70 | 主按钮 hover | 配 ink 9.28 |
 | `--accent-active` | `#F08633` | 0.73 0.166 58 | 主按钮按下 | 配 ink 6.09 |
@@ -140,7 +143,7 @@
 - 4 套配色：`warm` 暖米白（品牌缺省，即 §3.1/§3.2 两块，**逐字节锁定**，快照守门见 `scripts/check-theme-contrast.js`）、`sepia` 羊皮纸（赭陶）、`sage` 护眼绿（叶绿）、`indigo` 靛蓝（靛蓝）。
 - 选择器约定：`html[data-palette="X"][data-theme="Y"]`（特异性 0,2,1）必胜 warm 缺省块（0,1,1）；`data-palette="warm"` 不命中配色块、回落缺省。每个配色提供 light + dark 两组完整令牌，明暗三档（auto/light/dark）逻辑不变。
 - 完整令牌值与对比度实测见 `docs/PLAN-THEMES.md` §1；**改配色必须过 `node scripts/check-theme-contrast.js`**（含 warm 快照、令牌完整性、§3.3 纪律矩阵）。
-- 配色纪律：每套配色的 accent 家族沿 §3.3 角色规则（作为文字用 accent-deep ≥4.5；图标/边框用 accent-strong ≥3；大面积填充用 accent + accent-ink ≥4.5）。跨配色恒定项：`--danger` 恒 `#DC2626` 配白字 4.83；浅色非 warm 配色的 `--danger-text` 降档 `#C21F1F`（染色底上达标）。豁免口径（与 warm 现状对齐）：`--text-3` 白底/panel 专用；`--danger-text` 面板底专用。
+- 配色纪律：每套配色的 accent 家族沿 §3.3 角色规则（作为文字用 accent-deep ≥4.5；图标/边框用 accent-strong ≥3；大面积填充用 accent + accent-ink ≥4.5）。跨配色恒定项：`--danger` 恒 `#DC2626` 配白字 4.83；浅色非 warm 配色的 `--danger-text` 降档 `#C21F1F`（染色底上达标）。豁免口径（与 warm 现状对齐）：`--text-3` 白底/panel 专用；`--danger-text` 面板底专用；`--text-read` 仅卡片已读标题（bg-panel/card-hover 上 ≥4.5，PLAN-POLISH D7 契约入 check-theme-contrast 矩阵）。**白 `#fff` 恒定色豁免**（跨配色不令牌化，PLAN-POLISH D9）：危险按钮白字（base.css）、错误 toast 白字（App.vue）、开关白点（base.css 全局 .switch）——红底/橙轨上的白为规范值。
 - 设置页配色选择器的 swatch 取色走 `--p-sw-panel/--p-sw-accent` 令牌（tokens.css `html[data-palette]` 块），**组件不得引入私有 hex**。
 
 ### 3.4 字体阶
@@ -166,11 +169,13 @@
 --font-mono: "Cascadia Code", Consolas, "SF Mono", monospace;          /* URL、feed 路径 */
 ```
 
-### 3.5 间距 / 圆角 / 描边
+### 3.5 间距 / 圆角 / 描边 / 焦点环 / 滚动条
 
 - 间距阶：`--s1` 4 · `--s2` 8 · `--s3` 12 · `--s4` 16 · `--s5` 20 · `--s6` 24 · `--s8` 32 · `--s10` 40 · `--s12` 48
 - 圆角：`--r-lg` 12（卡片、弹层、横幅）/ `--r-md` 8（按钮、输入框、选中条目、菜单）/ `--r-sm` 6（芯片、缩略图）/ `--r-full` 999（徽章、toast、圆点）
 - 描边：1px `--border` 为主；输入框 1px `--border-strong`，聚焦时替换为 2px `--focus-ring`（用 box-shadow 实现，不改变布局）
+- 焦点环阴影令牌 `--ring: 0 0 0 2px var(--focus-ring)`（:root，PLAN-POLISH D8）——输入框 focus / focus-visible 处统一引用，勿手写同款字面量
+- **全局滚动条**（base.css，PLAN-POLISH D1）：`::-webkit-scrollbar` 8px 宽 / track 透明 / thumb `--border-strong` 圆角 full，hover `--text-disabled`（浅色加深、深色提亮，暗色悬停惯例）；不写 `scrollbar-width/scrollbar-color` 标准属性（Chromium 121+ 设了会忽略 webkit 定制）。滚动条色随配色令牌自动跟随，组件勿私改
 
 ### 3.6 阴影与海拔（克制）
 
@@ -186,13 +191,14 @@
 
 | 令牌 | 值 | 用途 |
 |---|---|---|
-| `--t-fast` | 120ms | hover/颜色/选中底过渡 |
-| `--t-med` | 160ms | 下拉、开关、分段控件、骨架显隐 |
-| `--t-slow` | 200ms | 阅读面板滑入、侧栏折叠、弹层进出场 |
+| `--t-fast` | 120ms | hover/颜色/选中底过渡；菜单/小面板 pop 进出场 |
+| `--t-med` | 160ms | 下拉、开关、分段控件、骨架显隐、fade/modal-toast 进出场 |
+| `--t-slow` | 200ms | 阅读面板滑入、侧栏折叠、弹层进出场（modal 入场根/子同值） |
 | `--ease-out` | `cubic-bezier(0, 0, 0.2, 1)` | 全站基础缓动 |
 | `--ease-spring` | `cubic-bezier(0.34, 1.56, 0.64, 1)` | 弹性 back-out（轻微过冲回弹）：悬浮轮盘项张开/球图标放大（C19），勿用于位移动画 |
 | `--t-skel` | 1.4s linear infinite | 骨架 shimmer |
-| `--t-progress` | 1.6s ease-in-out infinite alternate | 刷新进度条（不确定态） |
+| `--t-progress` | 1.6s ease-in-out infinite alternate | 刷新进度条（不确定态，transform 位移） |
+| `spin-360` | 0.9s linear infinite | 全局旋转 keyframes（base.css，PLAN-POLISH A7）：`.spin svg`（祖先类）/ `svg.spin`（class 落 svg）/ 伪元素直接引用 keyframes 名 |
 
 `prefers-reduced-motion: reduce` 时：所有过渡/动画 → `0.01ms`（骨架变静止双色块，进度条变 30% 不透明度脉动），见 §9。
 
@@ -348,7 +354,7 @@
 - 横幅（可选）：高 148，全宽，r 12 12 0 0，`object-fit: cover`，lazy-load；无图卡片无此层。封面门控（双层）：入库时 `extractCover` 跳过图标/头像类 URL 与显式小尺寸 img；渲染时 `@load` 复查自然尺寸，宽 <480 / 高 <100 / 高 > 宽×2（窄长截图）一律不渲染横幅，卡片回退纯文字形态——拉伸小图当通栏是被禁止的。
 - 内容 padding 12 14 14：
   - 标签行：分类 tag（11px/600 `--text-3`，可带 4px 圆点分类色？**否**——单彩色原则，纯文字）。
-  - 标题：16px/600 `--text-1`（未读）/ `#44403C`·550（已读），最多 2 行截断。
+  - 标题：16px/600 `--text-1`（未读）/ `--text-read`·550（已读；warm 浅 #44403C，跨配色跟随，PLAN-POLISH D7），最多 2 行截断。
   - 摘要：14px `--text-2`（未读）/ `--text-3`（已读，白底 4.8 达标），2 行截断，行高 1.6。
   - meta 行（margin-top 10）：源名 12px/600 `--text-2` · 时间 12px `--text-3` · `clock 14px + 9 分钟` `--text-3`；右缘书签 + 分享图标钮（28×24 线性 `--text-3`，hover `--text-1` + 底 `--bg-hover`；书签激活 = 实心 `--accent-deep`）。
 - hover：底 `--bg-card-hover`（banner 不变色），120ms；卡片无 transform（克制）。
@@ -363,7 +369,7 @@
 
 - 订阅源 h44 两行 / 分类 h32 单行，r8，padding 8 10。
 - 默认：文字 `--text-1`（主行）/ `--text-3`（副行、计数）；hover 底 `--bg-hover` + 浮出 ⋯；选中底 `--bg-selected` + 全部文字 `--accent-deep`。
-- ⋯ 菜单（z400，r8，min-width 128，`--shadow-2`）：`编辑订阅` / `删除订阅`（`--danger-text`），项 h36 padding 0 12，hover 底 `--bg-hover`。
+- ⋯ 菜单（z400，r8，min-width 128，`--shadow-2`，进出场走全局 `pop` 类）：`编辑订阅` / `删除订阅`（`--danger-text`），项 h36 padding 0 12 字号 13px（菜单行族统一，PLAN-POLISH D4），hover 底 `--bg-hover`。
 
 ### C7 徽章 / 标签
 
@@ -418,7 +424,7 @@
 ### C17 下拉组件（DropdownSelect / ComboboxInput，2026-09 增补）
 
 - **背景**：原生 `<select>`/`<datalist>` 弹层由 OS 绘制，在 uTools 无边框/透明窗内定位错位（实机：添加订阅选分类时弹层偏移）。全站替换为自定义组件。
-- **DropdownSelect**（单选）：触发钮视觉与 `.input`（C2）同族（36h / border-strong / r-md / bg-panel），右端 chevronDown（开合旋转 180°）；面板 Teleport 到 body + `position: fixed` 按触发钮 rect 定位（避开弹窗 `overflow` 裁剪），下方空间不足翻转到上方；`max-height 264` 滚动；项高 32，当前项 `--accent-deep`/600 + check 图标，hover `--bg-hover`。深色面板 `--bg-elevated`。z 取 `--z-toast`（面板会在 z-modal 弹层内使用，必须更高）。
+- **DropdownSelect**（单选）：触发钮视觉与 `.input`（C2）同族（36h / border-strong / r-md / bg-panel），右端 chevronDown（开合旋转 180°）；面板 Teleport 到 body + `position: fixed` 按触发钮 rect 定位（避开弹窗 `overflow` 裁剪），下方空间不足翻转到上方；`max-height 264` 滚动；项高 32 字号 13px，当前项 `--accent-deep`/600 + check 图标，hover `--bg-hover`。深色面板 `--bg-elevated`。z 取 `--z-toast`（面板会在 z-modal 弹层内使用，必须更高）。面板进出场走全局 `fade` Transition 类（纯 opacity——place() 的 inline transform 与 pop 冲突，PLAN-POLISH A3）。
 - **ComboboxInput**（可输入下拉，分类选择）：输入框本体复用 `.input`，右侧 chevron 开合；聚焦/输入即出建议（不区分大小写 includes，≤12 条），`↑↓` 高亮、Enter 取高亮项（无高亮保留键入文本，支持新建分类）、输入框空时 ⌫ 关闭不移动焦点（非空为编辑键）。
 - **键盘纪律**：组件内已处理的键（↑↓/Enter/Space/⌫）一律 `stopPropagation`——全局键盘流（Enter 开篇/⌫ 返回）不得穿透面板。滚动/resize 即关面板（fixed 面板不随滚动移动）。输入态 ⌫ 仍为编辑键（空值才关浮层）。
 - **已部署位置**：设置页（刷新频率/每源保留/AI 模型/自动摘要）、添加订阅与编辑订阅弹窗（分类 Combobox + 刷新频率）。
@@ -560,22 +566,29 @@
 |---|---|
 | hover / 颜色 / 选中底 | 120ms `--ease-out` |
 | 下拉/开关/分段/星标反馈 | 160ms `--ease-out`；星标 scale 1→1.15→1 |
-| **已读淡出** | 180ms `--ease-out`：透明度 1→0；随后高度折叠 160ms（margin+height）；期间 `pointer-events:none`。列表行同样式。批量（全部已读）逐行 30ms 级联错峰 |
+| **已读淡出** | 180ms `--ease-out`：透明度 1→0；随后高度折叠 160ms（margin+height）；期间 `pointer-events:none`。列表行同样式。批量（全部已读）逐行 30ms 级联错峰。（**注：虚拟列表 measureRow 缓存会污染行高动画，此项暂未实现——PLAN-POLISH §6 排除 12**） |
 | 阅读面板（小窗） | 200ms 滑入 `translateX(16px)→0` + 淡入；返回反向 160ms |
 | 侧栏折叠 | width 280↔64，200ms `--ease-out`；文字 opacity 先行 120ms |
-| 弹层 | scrim 160ms；面板 200ms scale 0.98→1 + 淡入 |
+| 弹层（modal 族） | scrim 淡入 + 面板 scale 0.98→1（进 200ms / 出 160ms，根/子同值——Vue 过渡结束判定只看根元素时长）；全局类 `modal-*`（base.css，PLAN-POLISH A0） |
+| 菜单/小面板（pop 族） | 120ms 淡入 + translateY(-4px)（从触发点方向）；`pop-*` 全局类；适用：⋯ 菜单/排序菜单/轨内搜索/ReaderFind |
+| fixed 面板（fade 族） | 160ms 纯淡入淡出（DropdownSelect/ComboboxInput 的 place() inline transform 与 pop 冲突，故纯 opacity）；`fade-*` 全局类 |
+| toast | 进场 160ms 上移 4px + 淡入；2.6s 后 160ms 淡出（离场不脱流——bottom 锚定 flex 容器内 absolute 会跳位裁切）；多 toast 补位走 `.toast-move` |
 | 悬浮轮盘展开（C19） | 外层 translate `--t-med --ease-out` 错峰 0/45/90/135ms；内层 rotate/scale `--t-slow --ease-spring`（delay = --d+40ms）；球 idle 漂浮 3.2s（§21 豁免例外，展开时暂停） |
+| spinner（进行中旋转） | 统一 `spin-360` 0.9s linear infinite（base.css 全局；PLAN-POLISH A7 归一 4 处 0.8/0.9/1.0s） |
 | 骨架 shimmer | 1.4s linear infinite，`--skel-b` 高光带 -25%→125% |
-| 刷新进度条 | 1.6s ease-in-out infinite alternate（位移渐变）；刷新中图标 0.9s 旋转 |
+| 刷新进度条 | 1.6s ease-in-out infinite alternate（transform 位移，PLAN-POLISH C1：left 逐帧布局已废）；刷新中图标 0.9s 旋转 |
+| OPML 导入进度 | fill `transform: scaleX(0→1)` 160ms（origin left；width 过渡是逐帧布局，PLAN-POLISH C2 已废） |
 | 统计数字变化 | 120ms 淡入（旧值即逝，不做计数动画） |
-| toast | 进入 160ms 上移 4px + 淡入；2.6s 后 160ms 淡出 |
+| 按下态（:active） | 即时底色切换 `--bg-active`（无过渡），全站可点元素覆盖（PLAN-POLISH B2/B3；源序纪律：排在 .on/.cursor/[aria-selected]/:hover 之后） |
 
 ```css
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    /* 必须 transition-property:none 而非只压 duration：property 默认 all 会把布局属性
+       （含 grid-template-columns）送进过渡管线，撞 Chromium 轨道过渡不刷新 bug（base.css 定型实现） */
+    transition-property: none !important;
   }
   /* 骨架变静态双色块；进度条改 30% 透明度脉动（0.01ms 规则下等效静止）；已读淡出改为瞬时移除 */
 }

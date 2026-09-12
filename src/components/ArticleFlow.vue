@@ -133,19 +133,21 @@ const emptyKind = computed<null | "first-run" | "no-result" | "category-empty" |
           >
             <I.sort /><span v-show="!compact">{{ sortLabel }}</span><I.chevronDown />
           </button>
-          <div class="dd-menu" v-if="sortOpen" role="listbox">
-            <button
-              v-for="s in SORTS"
-              :key="s.key"
-              class="dd-item"
-              role="option"
-              :aria-selected="settings.orderBy === s.key"
-              @click="settings.set('orderBy', s.key); sortOpen = false"
-            >
-              <span>{{ s.label }}</span>
-              <I.check v-if="settings.orderBy === s.key" />
-            </button>
-          </div>
+          <Transition name="pop">
+            <div class="dd-menu" v-if="sortOpen" role="listbox">
+              <button
+                v-for="s in SORTS"
+                :key="s.key"
+                class="dd-item"
+                role="option"
+                :aria-selected="settings.orderBy === s.key"
+                @click="settings.set('orderBy', s.key); sortOpen = false"
+              >
+                <span>{{ s.label }}</span>
+                <I.check v-if="settings.orderBy === s.key" />
+              </button>
+            </div>
+          </Transition>
         </div>
       </div>
     </header>
@@ -195,9 +197,11 @@ const emptyKind = computed<null | "first-run" | "no-result" | "category-empty" |
 .content-progress::before {
   content: ""; position: absolute; top: 0; bottom: 0; left: -30%; width: 30%;
   background: linear-gradient(90deg, transparent, var(--accent-strong), var(--accent), transparent);
+  /* 动画只走 transform（PLAN-POLISH C1：left 逐帧布局 → 合成器属性；
+     位移 = 容器 130% 宽 = 30% 宽条的 433.3%（translateX 百分比以自身宽为基准） */
   animation: progress-move var(--t-progress);
 }
-@keyframes progress-move { from { left: -30%; } to { left: 100%; } }
+@keyframes progress-move { from { transform: translateX(0); } to { transform: translateX(433.3%); } }
 
 .toolbar {
   height: 56px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between;
@@ -213,8 +217,7 @@ const emptyKind = computed<null | "first-run" | "no-result" | "category-empty" |
   .toolbar.compact .tb-title { max-width: 120px; }
 }
 .tb-progress { font-size: 12px; color: var(--text-3); }
-.spin svg { animation: spin 0.9s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+/* spinner 走 base.css 全局 .spin（spin-360 0.9s，PLAN-POLISH A7） */
 
 .view-switch {
   display: flex; border: 1px solid var(--border-strong); border-radius: var(--r-md); overflow: hidden;
@@ -229,6 +232,7 @@ const emptyKind = computed<null | "first-run" | "no-result" | "category-empty" |
   display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap;
 }
 .dd-btn:hover { background: var(--bg-card-hover); color: var(--text-1); }
+.dd-btn:active { background: var(--bg-active); }
 .dd-menu {
   position: absolute; right: 0; top: calc(100% + 4px); z-index: var(--z-dropdown);
   min-width: 128px; background: var(--bg-panel); border: 1px solid var(--border);
@@ -238,9 +242,10 @@ html[data-theme="dark"] .dd-menu { background: var(--bg-elevated); }
 .dd-item {
   display: flex; align-items: center; justify-content: space-between; width: 100%;
   height: 32px; padding: 0 10px; border: none; background: transparent; border-radius: var(--r-sm);
-  font-family: inherit; font-size: 12.5px; color: var(--text-1); cursor: pointer;
+  font-family: inherit; font-size: 13px; color: var(--text-1); cursor: pointer;
 }
 .dd-item:hover { background: var(--bg-hover); }
+.dd-item:active { background: var(--bg-active); }
 .dd-item[aria-selected="true"] { color: var(--accent-deep); font-weight: 600; }
 
 .feed-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 16px; }

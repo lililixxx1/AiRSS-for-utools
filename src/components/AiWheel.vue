@@ -236,7 +236,9 @@ defineExpose({ ballEl: ballRef, close: closeWheel });
 }
 .ai-ball:hover, .ai-wheel.open .ai-ball { background: var(--bg-card-hover); color: var(--accent-deep); opacity: 1; }
 .ai-wheel.open .ai-ball { animation-play-state: paused; box-shadow: var(--shadow-2); /* 展开抬升（transform 被 ai-float 占用，本体不做缩放） */ }
-.ai-ball:focus-visible, .ai-witem:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--focus-ring); }
+/* 按下反馈（PLAN-POLISH B3）：复合写两态——展开态选择器 (0,3,0) 高于单写 (0,2,0)，漏写则「展开时点球收起」无反馈 */
+.ai-ball:active, .ai-wheel.open .ai-ball:active { background: var(--bg-active); box-shadow: var(--shadow-1); }
+.ai-ball:focus-visible, .ai-witem:focus-visible { outline: none; box-shadow: var(--ring); }
 @keyframes ai-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
 
 /* 展开涟漪：一次性扩散重播于每次 open（class 摘除再添加）。基础态 opacity:0——正常播完与
@@ -269,7 +271,7 @@ defineExpose({ ballEl: ballRef, close: closeWheel });
   pointer-events: none; /* 收起态；展开态下方 .open 覆写 */
   position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; border-radius: 50%;
   border: 1px solid var(--border-strong); background: var(--bg-panel); color: var(--text-2);
-  box-shadow: var(--shadow-1); font-size: 17px; cursor: pointer;
+  box-shadow: var(--shadow-1); font-size: 18px; cursor: pointer; /* 图标与球 sparkle 18px 统一（PLAN-POLISH D6） */
   display: flex; align-items: center; justify-content: center;
   visibility: hidden; opacity: 0;
   transform: translate(-50%, -50%);
@@ -291,6 +293,8 @@ defineExpose({ ballEl: ballRef, close: closeWheel });
 }
 .ai-witem:hover { background: var(--bg-card-hover); color: var(--accent-deep); }
 .ai-wheel.open .ai-witem:hover { box-shadow: var(--shadow-2); }
+/* 按下反馈（PLAN-POLISH B3）：dim 不可用项除外；不碰 transform 分层（外层位移/内层旋转缩放） */
+.ai-witem:not(.dim):active { background: var(--bg-active); }
 .ai-witem.dim { opacity: 0.45; cursor: default; }
 .ai-wheel.open .ai-witem.dim { opacity: 0.45; }
 
@@ -304,16 +308,15 @@ defineExpose({ ballEl: ballRef, close: closeWheel });
 /* 展开态 hover 回弹（内层 transform 分量归内层管；rotate(0) 恒等可省略） */
 .ai-wheel.open .ai-witem:hover .ai-witem-in { transform: scale(1.12); }
 
-/* 进行中：外圈 accent 旋转环（reduced-motion 全局 0.01ms 瞬切，同 .ai-spin 惯例） */
+/* 进行中：外圈 accent 旋转环（reduced-motion 全局 0.01ms 瞬切，同 .spin 惯例） */
 .ai-witem.busy::before {
   content: ""; position: absolute; inset: -4px; border-radius: 50%;
   border: 2px solid transparent; border-top-color: var(--accent-strong);
-  animation: ai-rot 0.9s linear infinite;
+  animation: spin-360 0.9s linear infinite; /* 全局 keyframes（base.css，PLAN-POLISH A7） */
 }
 /* 已有产物：右上角实心点 */
 .ai-witem.dot::after {
   content: ""; position: absolute; top: -2px; right: -2px; width: 6px; height: 6px;
   border-radius: 50%; background: var(--accent-strong);
 }
-@keyframes ai-rot { to { transform: rotate(360deg); } }
 </style>

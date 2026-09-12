@@ -189,7 +189,8 @@ const countText = computed(() => {
 </script>
 
 <template>
-  <div class="reader-find" ref="panelEl" v-show="open" role="search" aria-label="文内搜索">
+  <Transition name="pop">
+    <div class="reader-find" ref="panelEl" v-show="open" role="search" aria-label="文内搜索">
     <div class="rf-bar">
       <span class="rf-ico"><I.search /></span>
       <input
@@ -223,6 +224,7 @@ const countText = computed(() => {
       <div class="rf-more" v-if="truncated">命中过多，仅显示前 {{ matches.length }} 处</div>
     </div>
   </div>
+  </Transition>
 </template>
 
 <style scoped>
@@ -258,7 +260,7 @@ html[data-theme="dark"] .reader-find { background: var(--bg-elevated); }
   background: transparent; color: var(--text-1); font-family: inherit; font-size: 13px;
   padding: 0 8px; outline: none;
 }
-.rf-input:focus { border-color: transparent; box-shadow: 0 0 0 2px var(--focus-ring); }
+.rf-input:focus { border-color: transparent; box-shadow: var(--ring); }
 .rf-count { font-size: 12px; color: var(--text-3); white-space: nowrap; }
 .rf-nav { width: 26px; height: 26px; }
 .rf-flip { display: flex; transform: rotate(180deg); } /* chevronUp 不在图标集，旋转复用 */
@@ -267,14 +269,14 @@ html[data-theme="dark"] .reader-find { background: var(--bg-elevated); }
 .rf-row {
   display: flex; align-items: center;
   min-height: 30px; padding: 2px 8px; border: none; border-radius: var(--r-sm);
-  background: transparent; font-family: inherit; font-size: 12.5px; color: var(--text-1);
+  background: transparent; font-family: inherit; font-size: 12px; color: var(--text-1);
   cursor: pointer; text-align: left;
 }
 .rf-row:hover { background: var(--bg-hover); }
 .rf-row.on { background: var(--bg-selected); }
+.rf-row:active { background: var(--bg-active); }
 .rf-ctx { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* 命中词高亮：C18 mark.hl 同族语汇（列表搜索高亮一致） */
-.hl { background: var(--accent-soft); color: var(--accent-deep); border-radius: 2px; padding: 0 1px; }
+/* 命中词高亮：mark.hl 全局类在 base.css（C18 同族语汇，PLAN-POLISH D2 提取） */
 .rf-empty,
 .rf-more { font-size: 12px; color: var(--text-3); padding: 4px 8px; }
 </style>

@@ -15,6 +15,8 @@ const ui = useUiStore();
 
 const displayTitle = computed(() => (settings.aiTitle ? props.item.titleDisplay || props.item.title : props.item.title));
 const titleRewritten = computed(() => settings.aiTitle && displayTitle.value !== props.item.title);
+// 高亮切段缓存（PLAN-POLISH C3：模板直调会每次重渲染重跑切词，computed 后仅依赖变化才重算）
+const titleSegs = computed(() => highlightSegments(displayTitle.value, hlTerms.value));
 
 // 手动 AI 摘要按钮（v1.2：自动摘要关闭时逐篇出现；有摘要/生成中不出现）
 const showAiBtn = computed(() => settings.aiEnabled && settings.aiAutoCount === 0 && !props.item.ai?.summary && !data.aiBusy.has(props.item._id));
@@ -46,7 +48,7 @@ function open() {
     <I.starFilled v-else-if="item.starred" class="star-pin" />
     <span v-else class="dot-pad"></span>
 
-    <span class="title ellipsis" :title="item.title"><template v-for="(seg, si) in highlightSegments(displayTitle, hlTerms)" :key="si"><mark v-if="seg.hit" class="hl">{{ seg.t }}</mark><template v-else>{{ seg.t }}</template></template><span v-if="titleRewritten" class="ai-mark">AI</span></span>
+    <span class="title ellipsis" :title="item.title"><template v-for="(seg, si) in titleSegs" :key="si"><mark v-if="seg.hit" class="hl">{{ seg.t }}</mark><template v-else>{{ seg.t }}</template></template><span v-if="titleRewritten" class="ai-mark">AI</span></span>
     <span class="feed ellipsis">{{ feed?.title || "" }}</span>
     <span class="time num">{{ timeAgo(item.pubTs) }}</span>
     <img v-if="item.cover" class="thumb" :src="item.cover" loading="lazy" alt="" referrerpolicy="no-referrer" />
@@ -74,6 +76,7 @@ function open() {
 }
 .row:hover { background: var(--bg-card-hover); }
 .row.cursor { background: var(--bg-selected); }
+.row:active { background: var(--bg-active); }
 .row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-strong); flex-shrink: 0; }
@@ -82,12 +85,12 @@ function open() {
 
 .title { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; color: var(--text-1); }
 .row:not(.unread) .title { font-weight: 400; color: var(--text-2); }
-.hl { background: var(--accent-soft); color: var(--accent-deep); border-radius: 2px; padding: 0 1px; }
+/* .hl 全局类在 base.css（PLAN-POLISH D2 提取） */
 .ai-mark {
-  display: inline-block; vertical-align: 1px; margin-left: 5px;
-  font-size: 9px; font-weight: 700; letter-spacing: 0.5px; line-height: 12px;
+  display: inline-block; vertical-align: 1px; margin-left: 6px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.5px; line-height: 14px;
   color: var(--accent-deep); border: 1px solid var(--accent-deep);
-  border-radius: var(--r-sm); padding: 0 2px; opacity: 0.85;
+  border-radius: var(--r-sm); padding: 0 3px; opacity: 0.85;
 }
 .feed { width: 110px; font-size: 12px; color: var(--text-3); flex-shrink: 0; }
 .time { font-size: 12px; color: var(--text-3); flex-shrink: 0; }

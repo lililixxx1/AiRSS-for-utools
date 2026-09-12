@@ -278,11 +278,14 @@ onBeforeUnmount(() => {
     <SettingsView v-if="ui.view === 'settings' && ui.detached" />
   </div>
 
-  <!-- 添加订阅弹层 -->
-  <AddFeedModal v-if="ui.modal && ui.modal.type === 'addFeed'" :preset-url="ui.modal.presetUrl" />
+  <!-- 添加订阅弹层（进出场走全局 modal Transition 类，PLAN-POLISH A1） -->
+  <Transition name="modal">
+    <AddFeedModal v-if="ui.modal && ui.modal.type === 'addFeed'" :preset-url="ui.modal.presetUrl" />
+  </Transition>
 
   <!-- 确认弹层（删除订阅/清空数据共用） -->
-  <div class="scrim" v-if="ui.modal && ui.modal.type === 'confirm'" @click.self="ui.modal = null">
+  <Transition name="modal">
+    <div class="scrim" v-if="ui.modal && ui.modal.type === 'confirm'" @click.self="ui.modal = null">
     <div class="confirm" role="alertdialog" aria-modal="true" :aria-label="ui.modal.title">
       <div class="cf-ico" :class="{ danger: ui.modal.danger }"><I.alertTriangle /></div>
       <h3>{{ ui.modal.title }}</h3>
@@ -298,10 +301,12 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </div>
-  </div>
+    </div>
+  </Transition>
 
   <!-- 输入弹层（D1：分类重命名/合并；样式复用 confirm 骨架，suggestions 走 ComboboxInput 防 C17 弹层错位） -->
-  <div class="scrim" v-if="ui.modal && ui.modal.type === 'prompt'" @click.self="ui.modal = null">
+  <Transition name="modal">
+    <div class="scrim" v-if="ui.modal && ui.modal.type === 'prompt'" @click.self="ui.modal = null">
     <div class="confirm" role="dialog" aria-modal="true" :aria-label="ui.modal.title">
       <h3>{{ ui.modal.title }}</h3>
       <p v-if="ui.modal.label" class="cf-body">{{ ui.modal.label }}</p>
@@ -319,20 +324,23 @@ onBeforeUnmount(() => {
         <button class="btn btn-primary" :disabled="!promptValue.trim()" @click="submitPrompt">确定</button>
       </div>
     </div>
-  </div>
+    </div>
+  </Transition>
 
-  <!-- OPML 导入进度条 -->
+  <!-- OPML 导入进度条（fill 走 scaleX 合成器属性，PLAN-POLISH C2；width 过渡是逐帧布局） -->
   <div class="opml-progress" v-if="data.opmlImporting" role="status">
     <span>正在导入订阅 {{ data.opmlImporting.done }}/{{ data.opmlImporting.total }}…</span>
-    <div class="opml-bar"><div class="opml-fill" :style="{ width: (100 * data.opmlImporting.done) / Math.max(1, data.opmlImporting.total) + '%' }"></div></div>
+    <div class="opml-bar"><div class="opml-fill" :style="{ transform: 'scaleX(' + data.opmlImporting.done / Math.max(1, data.opmlImporting.total) + ')' }"></div></div>
   </div>
 
-  <!-- toast -->
+  <!-- toast（进出场/补位走全局 toast Transition 类，PLAN-POLISH A1） -->
   <div class="toasts" aria-live="polite">
-    <div v-for="t in ui.toasts" :key="t.id" class="toast" :class="{ error: t.kind === 'error' }" role="status">
-      <I.alertTriangle v-if="t.kind === 'error'" />
-      {{ t.text }}
-    </div>
+    <TransitionGroup name="toast">
+      <div v-for="t in ui.toasts" :key="t.id" class="toast" :class="{ error: t.kind === 'error' }" role="status">
+        <I.alertTriangle v-if="t.kind === 'error'" />
+        {{ t.text }}
+      </div>
+    </TransitionGroup>
   </div>
 </template>
 
@@ -409,12 +417,12 @@ html[data-theme="dark"] .confirm { background: var(--bg-elevated); border-color:
 .opml-progress {
   position: fixed; left: 50%; top: 16px; transform: translateX(-50%); z-index: var(--z-toast);
   background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--r-md);
-  box-shadow: var(--shadow-2); padding: 10px 14px; font-size: 12.5px; color: var(--text-1);
+  box-shadow: var(--shadow-2); padding: 10px 14px; font-size: 12px; color: var(--text-1);
   display: flex; flex-direction: column; gap: 8px; min-width: 240px;
 }
 html[data-theme="dark"] .opml-progress { background: var(--bg-elevated); }
 .opml-bar { height: 4px; border-radius: var(--r-full); background: var(--bg-hover); overflow: hidden; }
-.opml-fill { height: 100%; background: var(--accent-strong); transition: width var(--t-med) var(--ease-out); }
+.opml-fill { height: 100%; width: 100%; background: var(--accent-strong); transform-origin: left; transition: transform var(--t-med) var(--ease-out); }
 
 .toasts {
   position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: var(--z-toast);
@@ -424,8 +432,7 @@ html[data-theme="dark"] .opml-progress { background: var(--bg-elevated); }
   background: var(--text-1); color: var(--bg-app);
   border-radius: var(--r-full); padding: 8px 14px; font-size: 13px; font-weight: 500;
   box-shadow: var(--shadow-2); display: flex; align-items: center; gap: 6px;
-  animation: toast-in var(--t-med) var(--ease-out);
 }
 .toast.error { background: var(--danger); color: #fff; }
-@keyframes toast-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+/* 白 #fff 为跨配色恒定色豁免（红底白字，design-system 危险按钮规范） */
 </style>

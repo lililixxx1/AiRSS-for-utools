@@ -39,11 +39,14 @@ i, em { font-style: normal; }
 .btn-primary:not(:disabled):active { background: var(--accent-active); }
 .btn-secondary { background: var(--bg-panel); border-color: var(--border-strong); color: var(--text-2); }
 .btn-secondary:not(:disabled):hover { background: var(--bg-card-hover); color: var(--text-1); }
+.btn-secondary:not(:disabled):active { background: var(--bg-active); }
 .btn-ghost { background: transparent; color: var(--text-2); }
 .btn-ghost:not(:disabled):hover { background: var(--bg-card-hover); color: var(--text-1); }
+.btn-ghost:not(:disabled):active { background: var(--bg-active); }
 .btn-ghost.is-on { background: var(--bg-selected); color: var(--accent-deep); }
 .btn-danger-outline { background: transparent; border-color: var(--danger); color: var(--danger-text); }
 .btn-danger-outline:not(:disabled):hover { background: var(--danger-soft); }
+.btn-danger-outline:not(:disabled):active { background: var(--danger-soft); filter: brightness(0.96); }
 .btn-danger { background: var(--danger); color: #fff; font-weight: 600; }
 .btn-danger:not(:disabled):hover { filter: brightness(1.08); }
 .btn-sm { height: 28px; padding: 0 10px; font-size: 12px; }
@@ -68,7 +71,7 @@ i, em { font-style: normal; }
   transition: border var(--t-fast) var(--ease-out), box-shadow var(--t-fast) var(--ease-out);
 }
 .input::placeholder { color: var(--text-3); }
-.input:focus { border-color: transparent; box-shadow: 0 0 0 2px var(--focus-ring); outline: none; }
+.input:focus { border-color: transparent; box-shadow: var(--ring); outline: none; }
 
 /* ---------- 骨架（§4.8） ---------- */
 @keyframes skel-move { from { background-position: -200% 0; } to { background-position: 200% 0; } }
@@ -98,6 +101,69 @@ i, em { font-style: normal; }
   border-radius: var(--r-sm); background: var(--bg-hover);
   font-family: var(--font-mono); font-size: 11px; color: var(--text-2);
 }
+
+/* ---------- 全局浮层进出场（PLAN-POLISH A0；design-system §9 补遗；组件勿再自造浮层动画） ---------- */
+/* pop：菜单/小面板族——从触发点方向轻移入（-4px 下滑入），120ms */
+.pop-enter-active, .pop-leave-active { transition: opacity var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out); }
+.pop-enter-from, .pop-leave-to { opacity: 0; transform: translateY(-4px); }
+.pop-leave-active { pointer-events: none; } /* 离场尾巴不可点 */
+
+/* fade：fixed 定位面板族（DropdownSelect/ComboboxInput 的 place() inline transform 冲突，故纯 opacity）与 scrim */
+.fade-enter-active, .fade-leave-active { transition: opacity var(--t-med) var(--ease-out); }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+.fade-leave-active { pointer-events: none; }
+
+/* modal：scrim 淡入 + 面板 scale 0.98→1（C11；根/子同值——Vue 的过渡结束判定只看根元素
+   computed 时长，根短子长会把子面板过渡截断在 96% 处，同值消除） */
+.modal-enter-active { transition: opacity var(--t-slow) var(--ease-out); }
+.modal-leave-active { transition: opacity var(--t-med) var(--ease-out); pointer-events: none; }
+.modal-enter-from, .modal-leave-to { opacity: 0; }
+.modal-enter-active .modal, .modal-enter-active .confirm { transition: transform var(--t-slow) var(--ease-out), opacity var(--t-slow) var(--ease-out); }
+.modal-enter-from .modal, .modal-enter-from .confirm { transform: scale(0.98); opacity: 0; }
+.modal-leave-active .modal, .modal-leave-active .confirm { transition: transform var(--t-med) var(--ease-out), opacity var(--t-med) var(--ease-out); }
+.modal-leave-to .modal, .modal-leave-to .confirm { transform: scale(0.98); opacity: 0; }
+
+/* toast：入场 4px 上移淡入；出场同款反向；多条时平滑补位。
+   离场项不脱流（.toasts 是 bottom 锚定 flex column，position:absolute 会让离场项瞬移到容器顶
+   且被视口裁切）——留在流内原位淡出，.toast-move 覆盖「新项入列顶起旧项」的补位 */
+.toast-enter-active, .toast-leave-active { transition: opacity var(--t-med) var(--ease-out), transform var(--t-med) var(--ease-out); }
+.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateY(4px); }
+.toast-move { transition: transform var(--t-med) var(--ease-out); }
+
+/* ---------- spinner 全局统一（原 4 处 0.8/0.9/1.0s 归一 0.9s；两种 DOM 形态都覆盖：
+   .spin 是祖先类（按钮旋转图标）/ class 直接落在 svg 组件上（I.x class="spin"）；
+   无 svg 无类可挂的伪元素（AiWheel busy 环）直接引用 spin-360 全局 keyframes 名 ---------- */
+@keyframes spin-360 { to { transform: rotate(360deg); } }
+.spin svg, svg.spin { animation: spin-360 0.9s linear infinite; }
+
+/* ---------- 全局滚动条（PLAN-POLISH D1；thumb 令牌化跨 8 配色零新增） ----------
+   不写 scrollbar-width/scrollbar-color：Chromium 121+ 一旦设了标准属性就会忽略
+   ::-webkit-scrollbar 定制造成不一致；thumb=border-strong 与默认滚动条明度持平 */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: var(--r-full); }
+::-webkit-scrollbar-thumb:hover { background: var(--text-disabled); }
+
+/* ---------- 搜索高亮 mark（C18；三处局部同款提取，PLAN-POLISH D2） ---------- */
+.hl { background: var(--accent-soft); color: var(--accent-deep); border-radius: 2px; padding: 0 1px; }
+
+/* ---------- 开关（C9；EditFeedModal/SettingsView 双份提取 + hover/active，PLAN-POLISH D3/B4） ---------- */
+.switch {
+  width: 36px; height: 20px; border-radius: var(--r-full); flex-shrink: 0;
+  background: var(--bg-active); border: none; position: relative; cursor: pointer;
+  transition: background var(--t-med) var(--ease-out);
+}
+html[data-theme="dark"] .switch { background: var(--border-strong); }
+.switch:hover { filter: brightness(0.96); } /* §6「轨加深 5%」：off 轨浅色已用 bg-active 无更深令牌，brightness 最小侵入 */
+.switch.on { background: var(--accent-strong); }
+.switch .dot {
+  position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+  border-radius: 50%; background: #fff; /* 跨配色恒定色（白点对橙轨 3.56 ≥3，C9） */
+  transition: transform var(--t-med) var(--ease-out);
+}
+.switch.on .dot { transform: translateX(16px); }
+.switch:active .dot { transform: scale(0.92); } /* §6 点缩放；on 态复合必须带上 16px 位移，否则白点弹回左侧 */
+.switch.on:active .dot { transform: translateX(16px) scale(0.92); }
 
 /* 动效纪律（design-system §9）
    注意必须 transition-property:none 而不是只压 duration：property 默认 all，

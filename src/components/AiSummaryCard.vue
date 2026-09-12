@@ -86,6 +86,7 @@ html[data-theme="dark"] .ai-card { background: var(--bg-elevated); }
 html[data-theme="dark"] .ai-tag { background: var(--bg-panel); }
 .ai-tag-btn { font-family: inherit; cursor: pointer; }
 .ai-tag-btn:hover { border-color: var(--accent-strong); color: var(--accent-deep); background: var(--bg-hover); }
+.ai-tag-btn:active { background: var(--bg-active); }
 
 .ai-err { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .ai-err-msg { font-size: 12px; color: var(--text-3); }

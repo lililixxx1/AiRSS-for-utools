@@ -245,20 +245,22 @@ function navFold() {
       <!-- 折叠轨搜索钮：分离窗 removeSubInput 后侧栏搜索框是唯一搜索入口（design-system §7），
            折叠态（手动/窄幅自动）下用浮层保住该入口，Ctrl+F 同路（focusSearch） -->
       <button v-if="collapsed" class="icon-btn rail-search-btn" aria-label="搜索" title="搜索" @click="toggleRailSearch"><I.search /></button>
-      <div class="rail-search-panel" v-if="collapsed && ui.railSearch" role="search" aria-label="搜索文章">
-        <span class="search-ico"><I.search /></span>
-        <input
-          ref="railSearchInput"
-          class="search-input"
-          type="text"
-          placeholder="搜索文章..."
-          :value="data.search"
-          @input="data.setSearch(($event.target as HTMLInputElement).value)"
-          @keydown="onRailSearchKey"
-          aria-label="搜索文章"
-        />
-        <span class="kbd">⌫</span>
-      </div>
+      <Transition name="pop">
+        <div class="rail-search-panel" v-if="collapsed && ui.railSearch" role="search" aria-label="搜索文章">
+          <span class="search-ico"><I.search /></span>
+          <input
+            ref="railSearchInput"
+            class="search-input"
+            type="text"
+            placeholder="搜索文章..."
+            :value="data.search"
+            @input="data.setSearch(($event.target as HTMLInputElement).value)"
+            @keydown="onRailSearchKey"
+            aria-label="搜索文章"
+          />
+          <span class="kbd">⌫</span>
+        </div>
+      </Transition>
 
       <!-- 搜索 -->
       <div class="search-wrap" v-if="!collapsed">
@@ -317,11 +319,13 @@ function navFold() {
             </div>
             <span v-if="f.lastError" class="err-dot" :title="'同步失败：' + f.lastError"></span>
             <span v-if="f.unreadCount" class="fi-count num">{{ f.unreadCount }}</span>
-            <div class="fi-menu" v-if="menuOpenId === f._id" @click.stop>
+            <Transition name="pop">
+              <div class="fi-menu" v-if="menuOpenId === f._id" @click.stop>
               <button class="menu-item" @click="editingFeed = f; menuOpenId = null"><I.edit />编辑订阅</button>
               <button class="menu-item" v-if="f.lastError" @click="data.retryFeed(f); menuOpenId = null"><I.refresh />重试同步</button>
               <button class="menu-item danger" @click="askDelete(f)"><I.trash />删除订阅</button>
-            </div>
+              </div>
+            </Transition>
             <button class="fi-more icon-btn" aria-label="订阅源操作" @click.stop="toggleMenu(f)"><I.moreVertical /></button>
           </template>
           <template v-else>
@@ -344,12 +348,14 @@ function navFold() {
             <span class="num cat-count" v-if="c.unread">{{ c.unread }}</span>
           </button>
           <button class="cat-more icon-btn" aria-label="分类操作" @click.stop="toggleCatMenu(c.name)"><I.moreVertical /></button>
-          <div class="fi-menu cat-menu" v-if="catMenuOpen === c.name" @click.stop>
-            <button class="menu-item" @click="renameCategory(c.name)"><I.edit />重命名</button>
-            <button class="menu-item" @click="mergeCategory(c.name)"><I.chevronRight />合并到…</button>
-            <!-- 「默认」是兜底分类，删除即空操作（D 送审必修）：不提供入口 -->
-            <button v-if="c.name !== '默认'" class="menu-item danger" @click="askDeleteCategory(c.name)"><I.trash />删除分类</button>
-          </div>
+          <Transition name="pop">
+            <div class="fi-menu cat-menu" v-if="catMenuOpen === c.name" @click.stop>
+              <button class="menu-item" @click="renameCategory(c.name)"><I.edit />重命名</button>
+              <button class="menu-item" @click="mergeCategory(c.name)"><I.chevronRight />合并到…</button>
+              <!-- 「默认」是兜底分类，删除即空操作（D 送审必修）：不提供入口 -->
+              <button v-if="c.name !== '默认'" class="menu-item danger" @click="askDeleteCategory(c.name)"><I.trash />删除分类</button>
+            </div>
+          </Transition>
         </div>
       </div>
 
@@ -391,9 +397,13 @@ function navFold() {
   </aside>
 
   <!-- 窄幅抽屉背板：点外关闭（z 阶 §3.8：背板 --z-scrim，抽屉在其上 1 级、仍低于 modal——抽屉里发起的删除确认等弹层必须盖住抽屉） -->
-  <div class="sb-drawer-scrim" v-if="drawerOpen" @click="ui.sbDrawer = false"></div>
+  <Transition name="fade">
+    <div class="sb-drawer-scrim" v-if="drawerOpen" @click="ui.sbDrawer = false"></div>
+  </Transition>
 
-  <EditFeedModal v-if="editingFeed" :feed="editingFeed" @close="editingFeed = null" />
+  <Transition name="modal">
+    <EditFeedModal v-if="editingFeed" :feed="editingFeed" @close="editingFeed = null" />
+  </Transition>
 </template>
 
 <style scoped>
@@ -449,7 +459,7 @@ function navFold() {
   display: flex; align-items: center; gap: 8px; padding: 0 8px 0 10px;
 }
 html[data-theme="dark"] .rail-search-panel { background: var(--bg-elevated); }
-.rail-search-panel:focus-within { border-color: transparent; box-shadow: 0 0 0 2px var(--focus-ring); }
+.rail-search-panel:focus-within { border-color: transparent; box-shadow: var(--ring); }
 
 .search-wrap {
   position: relative; margin-top: 16px;
@@ -458,7 +468,7 @@ html[data-theme="dark"] .rail-search-panel { background: var(--bg-elevated); }
   display: flex; align-items: center; gap: 8px; padding: 0 8px 0 10px;
   transition: box-shadow var(--t-fast) var(--ease-out);
 }
-.search-wrap:focus-within { border-color: transparent; box-shadow: 0 0 0 2px var(--focus-ring); }
+.search-wrap:focus-within { border-color: transparent; box-shadow: var(--ring); }
 .search-ico { color: var(--text-3); display: flex; font-size: 15px; }
 .search-input { border: none; outline: none; background: transparent; flex: 1; min-width: 0; font-size: 13px; color: var(--text-1); font-family: inherit; }
 .search-input::placeholder { color: var(--text-3); }
@@ -474,6 +484,7 @@ html[data-theme="dark"] .rail-search-panel { background: var(--bg-elevated); }
 .stat span { font-size: 11px; color: var(--text-3); }
 .stat:hover { background: var(--bg-card-hover); }
 .stat.on { background: var(--bg-selected); border-color: transparent; }
+.stat:active { background: var(--bg-active); }
 
 .sec-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -481,6 +492,7 @@ html[data-theme="dark"] .rail-search-panel { background: var(--bg-elevated); }
 }
 .add-btn { background: var(--accent); color: var(--accent-ink); width: 26px; height: 26px; }
 .add-btn:hover { background: var(--accent-hover); }
+.add-btn:active { background: var(--accent-active); } /* 主按钮变体按下走 accent-active（C1） */
 
 .feed-item {
   position: relative;
@@ -491,6 +503,7 @@ html[data-theme="dark"] .rail-search-panel { background: var(--bg-elevated); }
 .feed-item:hover { background: var(--bg-hover); }
 .feed-item.on { background: var(--bg-selected); }
 .feed-item.on .fi-main, .feed-item.on .fi-count { color: var(--accent-deep); }
+.feed-item:active { background: var(--bg-active); }
 .fi-body { flex: 1; min-width: 0; }
 .fi-main { font-size: 13px; font-weight: 500; line-height: 1.3; }
 .fi-sub { font-size: 11px; color: var(--text-3); margin-top: 1px; }
@@ -505,16 +518,17 @@ html[data-theme="dark"] .rail-search-panel { background: var(--bg-elevated); }
 
 .fi-menu {
   position: absolute; right: 8px; top: calc(100% - 4px); z-index: var(--z-dropdown);
-  min-width: 132px; background: var(--bg-panel, #fff); border-radius: var(--r-md);
+  min-width: 132px; background: var(--bg-panel); border-radius: var(--r-md);
   box-shadow: var(--shadow-2); border: 1px solid var(--border); padding: 4px;
 }
 html[data-theme="dark"] .fi-menu { background: var(--bg-elevated); }
 .menu-item {
   display: flex; align-items: center; gap: 8px; width: 100%;
   height: 32px; padding: 0 10px; border: none; background: transparent; border-radius: var(--r-sm);
-  font-size: 12.5px; color: var(--text-1); font-family: inherit; cursor: pointer;
+  font-size: 13px; color: var(--text-1); font-family: inherit; cursor: pointer;
 }
 .menu-item:hover { background: var(--bg-hover); }
+.menu-item:active { background: var(--bg-active); }
 .menu-item.danger { color: var(--danger-text); }
 
 .collapsed .feed-list { display: flex; flex-direction: column; align-items: center; gap: 6px; }
@@ -538,6 +552,7 @@ html[data-theme="dark"] .fi-menu { background: var(--bg-elevated); }
 }
 .cat-item:hover { background: var(--bg-hover); }
 .cat-item.on { background: var(--bg-selected); color: var(--accent-deep); }
+.cat-item:active { background: var(--bg-active); }
 .cat-count { font-size: 12px; color: var(--text-3); font-weight: 600; }
 .cat-item.on .cat-count { color: var(--accent-deep); }
 
@@ -566,6 +581,7 @@ html[data-theme="dark"] .fi-menu { background: var(--bg-elevated); }
 .cloud-tag:hover { background: var(--bg-hover); }
 .cloud-tag.on { background: var(--bg-selected); color: var(--accent-deep); border-color: transparent; }
 .cloud-tag.on .num { color: var(--accent-deep); }
+.cloud-tag:active { background: var(--bg-active); }
 
 .sb-footer {
   display: flex; gap: 8px; padding: 12px 16px;
@@ -579,6 +595,7 @@ html[data-theme="dark"] .fi-menu { background: var(--bg-elevated); }
   cursor: pointer; transition: background var(--t-fast) var(--ease-out);
 }
 .sb-btn:hover { background: var(--bg-btn-muted-hover); color: var(--text-1); }
+.sb-btn:active { background: var(--bg-active); }
 .sb-footer.collapsed { flex-direction: column; align-items: stretch; padding: 12px 14px; }
 
 .sb-toggle { flex: 0 0 32px; padding: 0; }

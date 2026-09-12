@@ -139,23 +139,25 @@ onBeforeUnmount(() => {
     </button>
 
     <Teleport to="body">
-      <div v-if="open && filtered.length" ref="panelRef" class="combo-panel" :style="panelStyle" role="listbox" :aria-label="ariaLabel">
-        <button
-          v-for="(s, i) in filtered"
-          :key="s"
-          class="combo-item"
-          :data-idx="i"
-          type="button"
-          role="option"
-          :aria-selected="s === modelValue"
-          :class="{ hover: i === hoverIdx }"
-          @mousedown.prevent="accept(s)"
-          @mousemove="hoverIdx = i"
-        >
-          <span class="combo-item-label">{{ s }}</span>
-          <I.check v-if="s === modelValue" />
-        </button>
-      </div>
+      <Transition name="fade">
+        <div v-if="open && filtered.length" ref="panelRef" class="combo-panel" :style="panelStyle" role="listbox" :aria-label="ariaLabel">
+          <button
+            v-for="(s, i) in filtered"
+            :key="s"
+            class="combo-item"
+            :data-idx="i"
+            type="button"
+            role="option"
+            :aria-selected="s === modelValue"
+            :class="{ hover: i === hoverIdx }"
+            @mousedown.prevent="accept(s)"
+            @mousemove="hoverIdx = i"
+          >
+            <span class="combo-item-label">{{ s }}</span>
+            <I.check v-if="s === modelValue" />
+          </button>
+        </div>
+      </Transition>
     </Teleport>
   </div>
 </template>
@@ -169,6 +171,7 @@ onBeforeUnmount(() => {
   display: flex; align-items: center; justify-content: center; border-radius: 0 var(--r-md) var(--r-md) 0;
 }
 .combo-chev:hover { color: var(--text-1); background: var(--bg-hover); }
+.combo-chev:active { background: var(--bg-active); }
 .combo-chev svg { transition: transform var(--t-fast) var(--ease-out); }
 .combo-chev svg.open { transform: rotate(180deg); }
 
@@ -182,9 +185,10 @@ html[data-theme="dark"] .combo-panel { background: var(--bg-elevated); }
 .combo-item {
   display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%;
   height: 32px; padding: 0 10px; border: none; background: transparent; border-radius: var(--r-sm);
-  font-family: inherit; font-size: 12.5px; color: var(--text-1); cursor: pointer; text-align: left;
+  font-family: inherit; font-size: 13px; color: var(--text-1); cursor: pointer; text-align: left;
 }
 .combo-item:hover, .combo-item.hover { background: var(--bg-hover); }
+.combo-item:active { background: var(--bg-active); }
 .combo-item[aria-selected="true"] { color: var(--accent-deep); font-weight: 600; }
 .combo-item-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

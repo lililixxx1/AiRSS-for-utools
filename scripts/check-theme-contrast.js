@@ -27,6 +27,7 @@ const WARM_SNAPSHOT = {
     "bg-app": "#F9F6F1", "bg-panel": "#FFFFFF", "bg-hover": "#F1EDE5", "bg-card-hover": "#FAF8F3",
     "bg-active": "#ECE7DD", "bg-btn-muted": "#F1EFE9", "bg-btn-muted-hover": "#E9E5DC", "bg-selected": "#FCEFE3",
     "text-1": "#292524", "text-2": "#57534E", "text-3": "#78716C", "text-disabled": "#A8A29E",
+    "text-read": "#44403C",
     "accent": "#F97316", "accent-hover": "#FB8438", "accent-active": "#F2650C",
     "accent-strong": "#EA580C", "accent-deep": "#C2410C", "accent-soft": "#FCEFE3", "accent-ink": "#431407",
     "border": "#E8E5DF", "border-strong": "#D6D1C8", "border-input": "#8F8A80", "focus-ring": "#EA580C",
@@ -37,8 +38,9 @@ const WARM_SNAPSHOT = {
   },
   dark: {
     "bg-app": "#171412", "bg-panel": "#201C19", "bg-elevated": "#282219", "bg-hover": "#2A241E",
-    "bg-card-hover": "#26211C", "bg-btn-muted": "#2A251F", "bg-btn-muted-hover": "#332C24", "bg-selected": "#35261A",
+    "bg-card-hover": "#26211C", "bg-active": "#332C24", "bg-btn-muted": "#2A251F", "bg-btn-muted-hover": "#332C24", "bg-selected": "#35261A",
     "text-1": "#F2EDE4", "text-2": "#B8B0A4", "text-3": "#928A7D", "text-disabled": "#6B6459",
+    "text-read": "#B8B0A4",
     "accent": "#FB923C", "accent-hover": "#FDBA74", "accent-active": "#F08633",
     "accent-strong": "#FB923C", "accent-deep": "#FDBA74", "accent-soft": "#35261A", "accent-ink": "#431407",
     "border": "#332C25", "border-strong": "#474036", "border-input": "#746C5B", "focus-ring": "#FB923C",
@@ -113,6 +115,8 @@ function checksFor(mode) {
     // danger-text 面板专用豁免：错误文字只出现在 panel/modal/toast 底上；warm 原值在 bg-app 上 4.48，
     // 设计文档 §3.1 本就只承诺白底 4.83，与 text-3 同类的现状对齐口径（warm 零 diff 原则优先）
     ["danger-text", ["bg-panel"], 4.5],
+    // 卡片已读标题（PLAN-POLISH D7）：出现在卡片（bg-panel）与 hover（bg-card-hover）底上
+    ["text-read", ["bg-panel", "bg-card-hover"], 4.5],
   ];
   return c.flatMap(([fg, bgs, min]) => bgs.map((bg) => [fg, bg, min])).concat([[null, "danger", 4.5, "#FFFFFF"]]);
 }

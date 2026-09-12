@@ -121,7 +121,8 @@ const summaryAction = computed(() => {
 
 <template>
   <Teleport to="body">
-    <div v-if="open" ref="panelRef" class="ai-panel" :style="panelStyle" role="dialog" aria-label="AI 工具">
+    <Transition name="fade">
+      <div v-if="open" ref="panelRef" class="ai-panel" :style="panelStyle" role="dialog" aria-label="AI 工具">
       <!-- 目录：有结构前端秒出；无结构长文 AI 生成（手动）；短文静态文案 -->
       <section class="ai-sec" aria-label="目录">
         <h3 class="ai-sec-t">目录</h3>
@@ -141,7 +142,7 @@ const summaryAction = computed(() => {
           </div>
           <p v-if="!tocFromHtml && tocCoverPercent < 100" class="ai-note">仅覆盖前 {{ tocCoverPercent }}%（长文输入截断）</p>
         </template>
-        <p v-else-if="tocState === 'loading'" class="ai-note"><I.sparkle class="ai-spin" />目录生成中…</p>
+        <p v-else-if="tocState === 'loading'" class="ai-note"><I.sparkle class="spin" />目录生成中…</p>
         <template v-else-if="tocAiEligible">
           <button v-if="aiEnabled" type="button" class="ai-act" @click="emit('generateToc')"><I.sparkle />AI 生成目录</button>
           <p v-else class="ai-note">开启 AI 增强后可生成目录（设置 → AI）</p>
@@ -154,7 +155,7 @@ const summaryAction = computed(() => {
         <h3 class="ai-sec-t">摘要</h3>
         <p v-if="!aiEnabled" class="ai-note">未开启 AI 增强（设置 → AI）</p>
         <template v-else>
-          <p v-if="summaryAction === 'loading'" class="ai-note"><I.sparkle class="ai-spin" />摘要生成中…</p>
+          <p v-if="summaryAction === 'loading'" class="ai-note"><I.sparkle class="spin" />摘要生成中…</p>
           <button v-else-if="summaryAction === 'run'" type="button" class="ai-act" @click="emit('runEnrich', false)"><I.sparkle />AI 摘要</button>
           <button v-else-if="summaryAction === 'retry'" type="button" class="ai-act" @click="emit('runEnrich', true)"><I.sparkle />重试摘要</button>
           <button v-else-if="summaryAction === 'regen'" type="button" class="ai-act" @click="emit('runEnrich', true)"><I.sparkle />重新生成</button>
@@ -179,7 +180,8 @@ const summaryAction = computed(() => {
           <span v-else>翻译</span>
         </button>
       </section>
-    </div>
+      </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -198,7 +200,7 @@ html[data-theme="dark"] .ai-panel { background: var(--bg-elevated); }
 .ai-toc-list { display: flex; flex-direction: column; gap: 2px; }
 .ai-toc-item {
   display: block; width: 100%; border: none; background: transparent; border-radius: var(--r-sm);
-  font-family: inherit; font-size: 12.5px; color: var(--text-1); text-align: left; cursor: pointer;
+  font-family: inherit; font-size: 13px; color: var(--text-1); text-align: left; cursor: pointer;
   padding: 5px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* 分级缩进（PLAN-TOC-LEVEL）：lv 规则必须在基础 .ai-toc-item 之后、.cur 之前——
@@ -208,6 +210,7 @@ html[data-theme="dark"] .ai-panel { background: var(--bg-elevated); }
 .ai-toc-item.lv2 { padding-left: 22px; font-size: 12px; font-weight: 400; color: var(--text-2); }
 .ai-toc-item.lv3 { padding-left: 36px; color: var(--text-3); }
 .ai-toc-item:hover { background: var(--bg-hover); }
+.ai-toc-item:active { background: var(--bg-active); }
 .ai-toc-item.cur {
   color: var(--accent-deep); font-weight: 600;
   background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent-strong); /* C16 语言：accent-soft 底 + 左缘 accent-strong */
@@ -216,11 +219,11 @@ html[data-theme="dark"] .ai-panel { background: var(--bg-elevated); }
 .ai-act {
   display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 8px;
   border: none; background: transparent; border-radius: var(--r-sm);
-  font-family: inherit; font-size: 12.5px; color: var(--text-1); cursor: pointer; text-align: left;
+  font-family: inherit; font-size: 13px; color: var(--text-1); cursor: pointer; text-align: left;
 }
 .ai-act:hover:not(:disabled) { background: var(--bg-hover); }
+.ai-act:active:not(:disabled) { background: var(--bg-active); }
 .ai-act:disabled { color: var(--text-disabled); cursor: default; }
 .num { font-variant-numeric: tabular-nums; }
-.ai-spin { animation: ai-rot 1s linear infinite; }
-@keyframes ai-rot { to { transform: rotate(360deg); } }
+/* spinner 走 base.css 全局 spin-360（svg.spin 形态，PLAN-POLISH A7） */
 </style>

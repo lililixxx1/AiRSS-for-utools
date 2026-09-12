@@ -59,6 +59,7 @@ python scripts/make-logo.py         # 重新生成 logo.png
 - 设计令牌在 `src/styles/tokens.css`；深色主题独立调校（非浅色反色），对比度结论见设计系统 §3.3。
 - **多配色体系（v1.4，PLAN-THEMES）**：配色（`data-palette`：warm/sepia/sage/indigo）与明暗（`data-theme`）正交；warm 缺省两块逐字节锁定（改 warm 必须同步 `scripts/check-theme-contrast.js` 内嵌快照）；**改任何配色/加新配色必须过 `node scripts/check-theme-contrast.js`**；组件不得引入私有 hex（swatch 取色走 `--p-sw-*`）。
 - `docs/preview.html` 是像素基准；z-index 阶、动效令牌、间距圆角均以设计系统文档为准。
+- **浮层进出场统一走 base.css 全局 Transition 类（v1.8 PLAN-POLISH）**：pop=菜单/小面板 120ms、fade=fixed 面板与 scrim 160ms、modal=scrim 淡入+面板 scale（根/子同值）、toast=TransitionGroup（离场不脱流）；组件勿自造浮层动画。spinner 统一 `.spin`/`spin-360`（base.css）。滚动条已全局令牌化（thumb=`--border-strong`），组件勿私改。新增 `:active` 按下态必须排在 `.on/.cursor/[aria-selected]/:hover` 规则之后（源序纪律，否则按已选项无反馈）。
 - AI 视觉：AiSummaryCard 规范见设计系统 **C16**（accent-soft 底 + 左缘 3px accent-strong，AIGC 徽章恒显，失败降级不阻塞阅读）。
 
 ## 已知坑
