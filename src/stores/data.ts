@@ -335,8 +335,8 @@ export const useDataStore = defineStore("data", {
       }
     },
 
-    /** 发现确认后的落库 + 入库即首抓 */
-    async addFeed(cand: { url: string; title: string; category: string }) {
+    /** 发现确认后的落库 + 入库即首抓（fullText：摘要型源预开抓取全文，PLAN-V1.3 A；refreshMin：0=跟随全局） */
+    async addFeed(cand: { url: string; title: string; category: string; fullText?: boolean; refreshMin?: number }) {
       const doc = await window.airss.sys.createFeed(cand);
       this.feeds.push(doc);
       const result = await window.airss.scheduler.refreshOne(doc);

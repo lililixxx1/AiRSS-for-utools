@@ -8,18 +8,18 @@ const data = useDataStore();
 const ui = useUiStore();
 
 const RECOMMENDED = [
+  { title: "橘鸦AI早报", url: "https://daily.juya.uk/rss.xml" },
   { title: "阮一峰的网络日志", url: "https://www.ruanyifeng.com/blog/atom.xml" },
   { title: "少数派", url: "https://sspai.com/feed" },
-  { title: "V2EX", url: "https://www.v2ex.com/index.xml" },
-];
+]; // 少数派等摘要型源无需手工预设 fullText：发现管线 summaryOnly 启发式会在确认步自动预开
 
 /** 首用引导输入框的值（handler 内直取——computed DOM 查询无响应依赖，会在 setup 期读到 null 并永久缓存） */
 function readUrlInput(): string {
   return (document.getElementById("empty-url-input") as HTMLInputElement | null)?.value ?? "";
 }
 
-async function addRecommended(u: string) {
-  ui.modal = { type: "addFeed", presetUrl: u };
+async function addRecommended(r: { url: string }) {
+  ui.modal = { type: "addFeed", presetUrl: r.url };
 }
 </script>
 
@@ -36,7 +36,7 @@ async function addRecommended(u: string) {
       </div>
       <p class="or">或从这些源开始</p>
       <div class="chips">
-        <button v-for="r in RECOMMENDED" :key="r.url" class="chip" @click="addRecommended(r.url)">{{ r.title }}</button>
+        <button v-for="r in RECOMMENDED" :key="r.url" class="chip" @click="addRecommended(r)">{{ r.title }}</button>
       </div>
     </template>
 

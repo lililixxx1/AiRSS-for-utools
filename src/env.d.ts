@@ -133,6 +133,6 @@ interface AirssServices {
     readTextFile(path: string): string;
     writeTextFile(path: string, text: string): void;
     openExternal(url: string): void;
-    createFeed(data: { url: string; title: string; category: string; siteUrl?: string; desc?: string }): Promise<any>;
+    createFeed(data: { url: string; title: string; category: string; fullText?: boolean; refreshMin?: number; siteUrl?: string; desc?: string }): Promise<any>;
   };
 }

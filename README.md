@@ -29,8 +29,8 @@ cd ..
 npm run dev               # 浏览器开发（mock 层兜底，无需 uTools）
 npm run build             # 构建 dist
 npm run typecheck         # vue-tsc
-node scripts/smoke-preload.js      # preload 冒烟测试（30 项：XSS/GBK/解析/OPML/真实抓取）
-node scripts/test-db-mock.js       # 数据层+端到端管线测试（26 项：判重/写序/保留清理/级联删除/真实刷新入库）
+node scripts/smoke-preload.js      # preload 冒烟测试（42 项：XSS/GBK/解析/OPML/提取消毒/摘要启发式/真实抓取）
+node scripts/test-db-mock.js       # 数据层+端到端管线测试（66 项：判重/写序/保留清理/级联删除/双前缀搜索/ensureFull 状态机）
 node scripts/check-theme-contrast.js  # 多主题配色守门（warm 快照 + 令牌完整 + 4 配色 × 明暗对比度矩阵）
 python scripts/make-logo.py     # 重新生成 logo
 ```

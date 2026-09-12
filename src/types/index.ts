@@ -109,11 +109,12 @@ export const DEFAULT_SETTINGS: Settings = {
   highlightWords: [],
 };
 
-/** 发现管线的候选源 */
+/** 发现管线的候选源；summaryOnly：发现期启发式判定该源只带摘要（true/false/null=无信号，驱动「抓取全文」智能默认） */
 export interface FeedCandidate {
   url: string;
   title: string;
   itemCount: number;
+  summaryOnly?: boolean | null;
 }
 
 export interface TriedPath {

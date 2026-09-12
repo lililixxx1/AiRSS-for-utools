@@ -304,7 +304,7 @@
 
 ### 4.7 空态（三态，占据整个内容列）
 
-1. **首用引导**：72px 橙色圆内白色 rss 图标（底 `--accent-soft`，图标 `--accent-deep`）→ 标题 18px/650 `从第一个订阅源开始` → 副文 13px `--text-2` `粘贴一个站点地址，AiRSS 会自动发现它的 Feed` → URL 输入行（flex：输入框 + `添加` 主按钮）→ `导入 OPML` 幽灵按钮 → 分隔 `或从这些源开始` 12px `--text-3` → 三个推荐芯片（阮一峰的网络日志 / 少数派 / V2EX，芯片 r-full 边 `--border-strong` hover 底 `--bg-selected`）。
+1. **首用引导**：72px 橙色圆内白色 rss 图标（底 `--accent-soft`，图标 `--accent-deep`）→ 标题 18px/650 `从第一个订阅源开始` → 副文 13px `--text-2` `粘贴一个站点地址，AiRSS 会自动发现它的 Feed` → URL 输入行（flex：输入框 + `添加` 主按钮）→ `导入 OPML` 幽灵按钮 → 分隔 `或从这些源开始` 12px `--text-3` → 三个推荐芯片（橘鸦AI早报 / 阮一峰的网络日志 / 少数派，芯片 r-full 边 `--border-strong` hover 底 `--bg-selected`）。
 2. **分类无文章**：40px 图标（folder，`--text-3`）+ `「技术」分类还没有文章` 16px/600 + `切换到全部，或检查订阅源是否正常同步` 13px `--text-2` + `查看全部文章` 幽灵按钮。
 3. **全部读完（庆祝式）**：64px 圆底 `--accent-soft` 内 check 图标 `--accent-deep` 24px + 外围 4 颗 4px 橙点装饰（静态，不动画）→ `全部读完了` 18px/650 → `128 篇已读清零，去散散步吧` 13px `--text-2` → `查看收藏（6）` 幽灵按钮。Shift+A 触发时同屏 + toast。
 

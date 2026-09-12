@@ -19,7 +19,10 @@ const tried = ref<TriedPath[]>([]);
 const chosen = ref(0);
 const errorText = ref("");
 
-const form = reactive({ title: "", category: "默认", refreshMin: 0 });
+const form = reactive({ title: "", category: "默认", refreshMin: 0, fullText: false });
+
+/** 发现期启发式信号（null = 无信号，如 mock；true = 摘要型源 → 预开抓取全文；false = 全文型 → 保持关） */
+const fullTextSuggest = ref<boolean | null>(null);
 
 const props = defineProps<{ presetUrl?: string }>();
 
@@ -40,12 +43,21 @@ async function discover() {
   url.value = input;
   step.value = "discovering";
   tried.value = [];
-  const res = await window.airss.feed.discover(input);
+  const res = await window.airss.feed
+    .discover(input)
+    .catch(() => null); // preload 对非法地址会抛（new URL 等）：任何 rejection 都落失败态，不卡在发现中转圈
+  if (!res) {
+    errorText.value = "探测失败，请检查地址是否正确";
+    step.value = "failed";
+    return;
+  }
   if (res.found && res.candidates.length) {
     candidates.value = res.candidates;
     tried.value = res.tried;
     chosen.value = 0;
     form.title = res.candidates[0].title;
+    fullTextSuggest.value = res.candidates[0].summaryOnly ?? null;
+    form.fullText = fullTextSuggest.value === true; // 摘要型源智能预开；全文型/未知默认关，用户可在确认步改
     step.value = "candidates";
   } else {
     tried.value = res.tried;
@@ -58,6 +70,10 @@ function pick() {
   const c = candidates.value[chosen.value];
   if (!c) return;
   form.title = c.title;
+  // 按实际选中候选重算（当前 discoverFeed 恒单候选，此为多候选 future-proof；confirm 步
+  // 无「上一步」，不存在用户改过开关再 pick 的覆盖窗口）
+  fullTextSuggest.value = c.summaryOnly ?? null;
+  form.fullText = fullTextSuggest.value === true;
   step.value = "confirm";
 }
 
@@ -70,6 +86,15 @@ const refreshOptions = [
   { value: 60, label: "1 小时" },
 ];
 
+const fullTextHint = computed(() => {
+  // 文案随 (判定信号, 开关实际状态) 双轴变化——用户手动改开关后不再显示与状态矛盾的「已自动开启」
+  if (fullTextSuggest.value === true)
+    return form.fullText ? "检测到该源仅提供摘要，已自动开启（打开文章时抓取原文）" : "检测到该源仅提供摘要，建议开启抓取全文";
+  if (fullTextSuggest.value === false)
+    return form.fullText ? "该源已在 Feed 内提供全文；已手动开启抓取" : "该源已在 Feed 内提供全文，无需抓取";
+  return "摘要型源打开文章时自动抓取原文（需站点可访问）";
+});
+
 async function add() {
   const c = candidates.value[chosen.value];
   if (!c) return;
@@ -81,6 +106,8 @@ async function add() {
     url: c.url,
     title: form.title.trim(),
     category: form.category.trim() || "默认",
+    fullText: form.fullText,
+    refreshMin: form.refreshMin,
   });
   ui.toast(`已添加「${doc.title}」${result.ok && result.newCount ? ` · 抓到 ${result.newCount} 篇文章` : " · 正在抓取首批文章"}`);
   ui.modal = null;
@@ -168,6 +195,15 @@ function close() {
             <span class="field-label">刷新频率</span>
             <DropdownSelect :model-value="form.refreshMin" :options="refreshOptions" aria-label="刷新频率" @update:model-value="form.refreshMin = Number($event)" />
           </div>
+          <div class="field row-switch">
+            <span class="field-label">
+              抓取全文
+              <span class="field-hint">{{ fullTextHint }}</span>
+            </span>
+            <button class="switch" :class="{ on: form.fullText }" role="switch" :aria-checked="form.fullText" @click="form.fullText = !form.fullText">
+              <span class="dot"></span>
+            </button>
+          </div>
         </template>
 
         <!-- 失败态 -->
@@ -218,6 +254,8 @@ html[data-theme="dark"] .modal { background: var(--bg-elevated); border-color: v
 
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field-label { font-size: 12px; font-weight: 500; color: var(--text-2); }
+.field-hint { display: block; font-size: 11px; font-weight: 400; color: var(--text-3); margin-top: 2px; max-width: 280px; line-height: 1.5; }
+.row-switch { flex-direction: row; align-items: center; justify-content: space-between; }
 .hint { font-size: 12px; color: var(--text-3); line-height: 1.5; }
 
 .discovering { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-1); padding: 4px 0; }

@@ -355,7 +355,7 @@ export function installMock() {
       },
       async createFeed(data: any) {
         const d = load();
-        const doc = { _id: "feed:mock-" + Date.now(), url: data.url, title: data.title || data.url, titleEn: "", category: data.category || "默认", siteUrl: data.siteUrl || "", desc: data.desc || "", etag: "", lastModified: "", lastFetchedAt: Date.now(), refreshMin: 0, unreadCount: 0, lastError: "", notify: true, createdAt: Date.now() };
+        const doc = { _id: "feed:mock-" + Date.now(), url: data.url, title: data.title || data.url, titleEn: "", category: data.category || "默认", siteUrl: data.siteUrl || "", desc: data.desc || "", ...(data.fullText ? { fullText: true } : {}), etag: "", lastModified: "", lastFetchedAt: Date.now(), refreshMin: data.refreshMin || 0, unreadCount: 0, lastError: "", notify: true, createdAt: Date.now() };
         d.feeds.push(doc);
         save(d);
         return doc;

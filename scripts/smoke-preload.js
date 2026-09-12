@@ -7,7 +7,7 @@ const path = require("path");
 const PRELOAD = path.join(__dirname, "..", "preload");
 
 const { sanitizeContent, makeSummary, extractCover, readingMinutes, htmlToText } = require(path.join(PRELOAD, "services/article.js"));
-const { parseFeedXml, decodeBuffer, looksLikeFeedXml } = require(path.join(PRELOAD, "services/feed.js"));
+const { parseFeedXml, decodeBuffer, looksLikeFeedXml, looksSummaryOnly } = require(path.join(PRELOAD, "services/feed.js"));
 const { parseOpml, buildOpml } = require(path.join(PRELOAD, "services/opml.js"));
 const { nodeFetch } = require(path.join(PRELOAD, "services/http.js"));
 const iconv = require(path.join(PRELOAD, "node_modules/iconv-lite"));
@@ -67,6 +67,21 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     ok("isoDate→pubTs", new Date(items[0].pubTs).toISOString().startsWith("2026-09-03"));
     ok("无日期→now", Math.abs(items[1].pubTs - Date.now()) < 5000);
     ok("guid 保留", items[0].guid === "g1");
+
+    // 摘要型源启发式（发现期智能默认，2026-09-12）
+    ok("启发式：短正文 → 摘要型", looksSummaryOnly(items) === true);
+    const fullFeed = await parseFeedXml(`<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+<channel><title>全文源</title><link>https://example.com</link><description>d</description>
+<item><title>a</title><guid>f1</guid><link>https://example.com/1</link>
+<content:encoded><![CDATA[<p>${"长".repeat(800)}</p>]]></content:encoded></item>
+<item><title>b</title><guid>f2</guid><link>https://example.com/2</link>
+<content:encoded><![CDATA[<p>${"文".repeat(900)}</p>]]></content:encoded></item>
+</channel></rss>`);
+    ok("启发式：长正文 → 全文型", looksSummaryOnly(fullFeed.items) === false);
+    ok("启发式：空条目 → 无信号（null，不当全文型断言）", looksSummaryOnly([]) === null);
+    ok("启发式：中位数而非均值（4短+1超长 → 摘要型）", looksSummaryOnly([{ contentHtml: "短".repeat(100) }, { contentHtml: "短".repeat(100) }, { contentHtml: "短".repeat(100) }, { contentHtml: "短".repeat(100) }, { contentHtml: "长".repeat(5000) }]) === true);
+    ok("启发式：长正文主流+单篇短 → 全文型", looksSummaryOnly([...fullFeed.items, ...fullFeed.items, { contentHtml: "只有一句" }]) === false);
 
     // GBK 兜底
     const gbkXml = iconv.encode(`<?xml version="1.0" encoding="GBK"?><rss version="2.0"><channel><title>中文编码</title></channel></rss>`, "gbk");

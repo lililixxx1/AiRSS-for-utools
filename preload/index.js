@@ -106,8 +106,8 @@ window.airss = {
     openExternal(url) {
       ut().shellOpenExternal(url);
     },
-    /** 新建 feed 文档并入库（发现确认后调用；返回完整文档） */
-    async createFeed({ url, title, category, siteUrl, desc }) {
+    /** 新建 feed 文档并入库（发现确认后调用；返回完整文档）。fullText：摘要型源预开抓取全文（缺省不写字段=关）；refreshMin：0=跟随全局 */
+    async createFeed({ url, title, category, fullText, refreshMin, siteUrl, desc }) {
       const doc = {
         _id: dbSvc.newFeedId(),
         url,
@@ -116,10 +116,11 @@ window.airss = {
         category: category || "默认",
         siteUrl: siteUrl || "",
         desc: desc || "",
+        ...(fullText ? { fullText: true } : {}),
         etag: "",
         lastModified: "",
         lastFetchedAt: null, // null = 立即到期，入库即首抓（H5）
-        refreshMin: 0, // 0 = 跟随全局设置
+        refreshMin: refreshMin || 0, // 0 = 跟随全局设置
         unreadCount: 0,
         lastError: "",
         notify: true,

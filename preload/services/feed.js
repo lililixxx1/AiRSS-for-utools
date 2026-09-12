@@ -5,7 +5,7 @@
  * 抓取（PLAN §5.1）：ETag/If-Modified-Since 条件请求；304 直接返回不解析
  */
 const { nodeFetch } = require("./http.js");
-const { sanitizeContent, makeSummary, extractCover } = require("./article.js");
+const { sanitizeContent, makeSummary, extractCover, htmlToText } = require("./article.js");
 const crypto = require("crypto");
 const iconv = require("iconv-lite");
 const Parser = require("rss-parser").Parser || require("rss-parser");
@@ -16,6 +16,24 @@ const parser = new Parser({
 });
 
 const COMMON_PATHS = ["/feed", "/rss", "/atom.xml", "/feed.xml", "/index.xml", "/rss.xml"];
+
+/** 发现期智能默认阈值：与 extract.js FULLTEXT_MIN_CHARS 同值（rich 守卫判定线）——
+ *  低于此线的源只带摘要，打开文章时抓原文才有增量 */
+const FULLTEXT_SUGGEST_CHARS = 600;
+
+/** 摘要型源启发式（2026-09-12，驱动添加弹窗「抓取全文」智能默认）：抽样近期条目
+ *  （feed 一般最新在前，取前 5 条）的正文中位纯文本长度，中位数 < 阈值 → 只带摘要。
+ *  协议无关——RSS2.0 的 content:encoded/description 与 Atom 的 content/summary 已在
+ *  parseFeedXml 归一到 contentHtml，量的是「源实际带来多少正文」而非猜协议字段。
+ *  @returns {boolean|null} true=摘要型 false=全文型 null=无条目可量（空源，勿当全文型断言） */
+function looksSummaryOnly(items) {
+  const lens = (items || []).slice(0, 5).map((it) => htmlToText(it.contentHtml || "").trim().length);
+  if (!lens.length) return null;
+  lens.sort((a, b) => a - b);
+  // 偶数长度取上中位（[100,700] 取 700 → 不预开）：偏保守——误判"摘要型"由 extract.js
+  // rich 守卫兜底（≥600 字条目零成本短路），误判"全文型"只是默认关、用户可改，两头代价都小
+  return lens[Math.floor(lens.length / 2)] < FULLTEXT_SUGGEST_CHARS;
+}
 
 /** 文本是否像 RSS/Atom 源（宽松判定：声明或根元素） */
 function looksLikeFeedXml(text) {
@@ -120,8 +138,9 @@ function normalizeUrl(input) {
 }
 
 /**
- * 发现管线：返回 {found, candidates:[{url,title,itemCount}], tried:[{path,result}]}
- * 候选按确定性排序：直连 feed > <link> 声明 > 路径探测。
+ * 发现管线：返回 {found, candidates:[{url,title,itemCount,summaryOnly}], tried:[{path,result}]}
+ * 候选按确定性排序：直连 feed > <link> 声明 > 路径探测。summaryOnly：摘要型源启发式结果，
+ * 渲染层据此预开「抓取全文」（全文型/未知保持关，用户可改）。
  */
 async function discoverFeed(inputUrl) {
   const url = normalizeUrl(inputUrl);
@@ -130,7 +149,7 @@ async function discoverFeed(inputUrl) {
   // 1) 直连即 feed
   const direct = await fetchFeed(url, { timeout: 10000 });
   if (direct.status === "ok") {
-    return { found: true, candidates: [{ url, title: direct.meta.title || url, itemCount: direct.items.length }], tried: [{ path: "(直连)", result: "feed" }] };
+    return { found: true, candidates: [{ url, title: direct.meta.title || url, itemCount: direct.items.length, summaryOnly: looksSummaryOnly(direct.items) }], tried: [{ path: "(直连)", result: "feed" }] };
   }
   tried.push({ path: "(直连)", result: direct.error });
 
@@ -152,7 +171,7 @@ async function discoverFeed(inputUrl) {
     for (const link of links) {
       const probe = await fetchFeed(link, { timeout: 8000 });
       if (probe.status === "ok") {
-        return { found: true, candidates: [{ url: link, title: probe.meta.title || link, itemCount: probe.items.length }], tried: tried.concat([{ path: "<link> 声明", result: link }]) };
+        return { found: true, candidates: [{ url: link, title: probe.meta.title || link, itemCount: probe.items.length, summaryOnly: looksSummaryOnly(probe.items) }], tried: tried.concat([{ path: "<link> 声明", result: link }]) };
       }
       tried.push({ path: "<link> 声明", result: probe.error });
     }
@@ -166,7 +185,7 @@ async function discoverFeed(inputUrl) {
     const cand = origin + p;
     const probe = await fetchFeed(cand, { timeout: 5000 });
     if (probe.status === "ok") {
-      return { found: true, candidates: [{ url: cand, title: probe.meta.title || cand, itemCount: probe.items.length }], tried: tried.concat([{ path: p, result: "feed" }]) };
+      return { found: true, candidates: [{ url: cand, title: probe.meta.title || cand, itemCount: probe.items.length, summaryOnly: looksSummaryOnly(probe.items) }], tried: tried.concat([{ path: p, result: "feed" }]) };
     }
     tried.push({ path: p, result: probe.error });
   }
@@ -174,4 +193,4 @@ async function discoverFeed(inputUrl) {
   return { found: false, candidates: [], tried };
 }
 
-module.exports = { fetchFeed, discoverFeed, normalizeUrl, parseFeedXml, looksLikeFeedXml, decodeBuffer };
+module.exports = { fetchFeed, discoverFeed, normalizeUrl, parseFeedXml, looksLikeFeedXml, decodeBuffer, looksSummaryOnly };
