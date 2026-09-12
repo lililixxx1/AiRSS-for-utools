@@ -8,6 +8,7 @@ import { I } from "./icons";
 import AiSummaryCard from "./AiSummaryCard.vue";
 import AiToolsPanel from "./AiToolsPanel.vue";
 import AiWheel from "./AiWheel.vue";
+import ReaderFind from "./ReaderFind.vue";
 import { timeAgo } from "../lib/format";
 
 const data = useDataStore();
@@ -468,6 +469,14 @@ async function onWheelToc() {
   if (tocState.value === "done" && it.aiToc && it._id === ui.readerItemId) openAiPanel();
 }
 
+/** 轮盘文内搜索项（PLAN-WHEEL-FIND）：非 AI 功能恒可达；顺关轨内面板防两搜索面并存（S2 纪律），
+ *  focusAt 自增驱动「已开态再点 = 重聚焦+全选」（同值赋 readerFind 不触发面板 watch） */
+function onWheelFind() {
+  ui.railSearch = false;
+  ui.readerFind = true;
+  ui.readerFindFocus++;
+}
+
 /** 当前章：段落顶越过「滚动位置+30% 视口」锚线的最后一章（entries 升序，rect 差算 y 免 offsetParent 歧义） */
 function markCurrentSection(sections: { idx: number }[]) {
   const sc = scrollEl.value;
@@ -619,6 +628,10 @@ watch(
     resetAiStream();
     resetTrans();
     resetToc();
+    // 文内搜索栏强关（PLAN-READER-FIND 审核B1：不放 resetToc——maybeExtractFull 也调它，写进去等于
+    // 全文提取落地强关面板）；railSearch 同关防「列表态开着轨内面板→Enter 进文」两面板并存（S2）
+    ui.readerFind = false;
+    ui.railSearch = false;
     if (!id) return;
     lastReaderId = id;
     // 位置快照必须先于 html="" ——重渲染链条上的 onUpdated 节流保存会在空正文阶段
@@ -670,6 +683,7 @@ onBeforeUnmount(() => {
   window.airss.ai.abort();
   cancelTocWarmup(); // 卸载兜底：父级 v-if 同周期卸载的 watcher 会被跳过，目录状态与预热句柄必须自清
   resetToc(); // 卸载兜底：父级 v-if 同周期卸载的 watcher 会被跳过，面板与目录状态必须自清
+  ui.readerFind = false; // 同上：文内搜索栏随阅读面板卸载强关（PLAN-READER-FIND 审核B1）
   cancelPosSave();
   // 卸载兜底：此刻 ui.readerItemId 可能已被置 null（关闭路径），用 lastReaderId
   if (lastReaderId && scrollEl.value) saveReadPosition(lastReaderId, ratioOf());
@@ -726,6 +740,11 @@ const fontLabels = ["14", "16", "18", "22"];
       </div>
     </header>
 
+    <!-- 文内搜索（PLAN-READER-FIND）：.reader-body 右上 absolute 悬浮卡（2026-09-12 悬浮化，不占 flex 行高、
+         正文滚动区尺寸恒定；跳转补偿遮挡见 ReaderFind.jump）；常驻挂载 + open 控制（已开再 Ctrl+F 重聚焦全选），
+         切文在 readerItemId watcher 强关 -->
+    <ReaderFind :open="ui.readerFind" :root="contentEl" :html-key="html" :seed="data.search" :focus-at="ui.readerFindFocus" @close="ui.readerFind = false" />
+
     <!-- 正文 -->
     <div class="reader-scroll" ref="scrollEl" v-if="item" @scroll.passive="schedulePosSave">
       <article class="reader-article" :class="{ serif: settings.serif }">
@@ -755,7 +774,7 @@ const fontLabels = ["14", "16", "18", "22"];
       </article>
     </div>
 
-    <!-- AI 悬浮轮盘（v1.5）：右下悬浮球，hover 展开摘要/翻译/目录，点击直达；详情态开下方面板。
+    <!-- AI 悬浮轮盘（v1.5；v1.7 加文内搜索项）：右下悬浮球，hover 展开摘要/翻译/目录/文内搜索，点击直达；详情态开下方面板。
          锚定 .reader-body（底栏之外），bottom:12 恒在底栏上缘之上 -->
     <AiWheel
       v-if="item"
@@ -772,6 +791,7 @@ const fontLabels = ["14", "16", "18", "22"];
       @summary="onWheelSummary"
       @translate="onWheelTrans"
       @toc="onWheelToc"
+      @find="onWheelFind"
       @close-panel="aiPanelOpen = false"
     />
     </div>
@@ -843,6 +863,9 @@ const fontLabels = ["14", "16", "18", "22"];
 /* AI 任务呼吸点已随顶栏按钮迁入 AiWheel 悬浮球（绝对定位版） */
 /* 目录跳转锚段：滚动定位时避开顶部区域（h2-h4 即前端目录条目所属块） */
 .ra-content :deep(h2), .ra-content :deep(h3), .ra-content :deep(h4) { scroll-margin-top: 12px; }
+/* 文内搜索闪烁标记（PLAN-READER-FIND）：瞬时背景切换不走动画——reduced-motion 下仍可见；
+   作用在 .ra-content 子树（含 root 自身的裸文本 pseudo-block），只能落 ReaderPanel 的 :deep */
+.reader-article :deep(.find-flash) { background: var(--accent-soft); border-radius: var(--r-sm); }
 .fs-cur { font-size: 12px; color: var(--text-3); padding: 0 2px; }
 
 .reader-scroll { flex: 1; min-height: 0; overflow-y: auto; }

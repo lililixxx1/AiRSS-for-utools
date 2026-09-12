@@ -5,7 +5,7 @@ import { I } from "./icons";
 /**
  * 可输入下拉（C17）：替代 input[datalist]（原生建议弹层在 uTools 无边框窗内定位错位）。
  * 自由文本 + 既有分类建议：聚焦/输入即过滤，↑↓ 高亮、Enter 取高亮项（无高亮则保留键入文本）、
- * Esc 关闭不移动焦点。已处理的键 stopPropagation，防止全局 Enter 开篇 / Esc 返回吃掉面板按键。
+ * 输入框空时 ⌫ 关闭不移动焦点（非空为编辑键；2026-09-12 Esc 全线换 ⌫）。已处理的键 stopPropagation，防止全局 Enter 开篇 / ⌫ 返回吃掉面板按键。
  */
 const props = defineProps<{
   modelValue: string;
@@ -84,7 +84,8 @@ function onKeydown(e: KeyboardEvent) {
     e.stopPropagation();
     if (hoverIdx.value >= 0 && filtered.value[hoverIdx.value]) accept(filtered.value[hoverIdx.value]);
     else close();
-  } else if (e.key === "Escape" && open.value) {
+  } else if (e.key === "Backspace" && open.value && props.modelValue === "") {
+    // 输入框空时 ⌫ 关闭不移动焦点；非空是编辑键（2026-09-12 Esc 全线换 ⌫，见 PLAN-ESC-BACKSPACE）
     e.preventDefault();
     e.stopPropagation();
     close();

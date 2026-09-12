@@ -3,12 +3,12 @@ import { computed, nextTick, onBeforeUnmount, ref } from "vue";
 import { I } from "./icons";
 
 /**
- * AI 悬浮轮盘（v1.5，PLAN-AI-WHEEL）：阅读区右下悬浮球，hover 后三项（摘要/翻译/目录）
+ * AI 悬浮轮盘（v1.5，PLAN-AI-WHEEL）：阅读区右下悬浮球，hover 后四项（摘要/翻译/目录/文内搜索）
  * 沿左上弧展开，点击直达动作；目录列表/进度等详情仍由 AiToolsPanel 呈现。
  * 纯 UI 组件——状态与回调由 ReaderPanel 透传，自有状态仅开合与监听管理。
  * 热区模型：容器 pointer-events:none 不挡正文；open 期间挂 document mousemove
- * （坐标在「球 rect 左/上扩 120px」联合矩形内保活——连续区域，球→项路径无缝）与
- * keydown 捕获（Esc；hover 展开时焦点可能在 body，容器级监听收不到）。
+ * （坐标在「球 rect 左/上扩 140px」联合矩形内保活——连续区域，球→项路径无缝）与
+ * keydown 捕获（⌫ 收起，输入态豁免；hover 展开时焦点可能在 body，容器级监听收不到）。
  * 收起态 visibility:hidden：opacity+pointer-events 不移出 Tab 序，会留键盘盲焦点（审核 B2）。
  */
 const props = defineProps<{
@@ -23,16 +23,17 @@ const props = defineProps<{
   panelOpen: boolean;
 }>();
 const emit = defineEmits<{
-  (e: "summary" | "translate" | "toc" | "closePanel"): void;
+  (e: "summary" | "translate" | "toc" | "find" | "closePanel"): void;
 }>();
 
 const open = ref(false);
-const pinned = ref(false); // 点击展开=锁定：移出热区不收，再点球/Esc/点功能项/切文才收（2026-09-09 用户改定；hover 预览仍移开即收）
+const pinned = ref(false); // 点击展开=锁定：移出热区不收，再点球/⌫/点功能项/切文才收（2026-09-09 用户改定；hover 预览仍移开即收）
 const rootRef = ref<HTMLElement | null>(null);
 const ballRef = ref<HTMLButtonElement | null>(null);
 
-/** 几何常量（方案 §1.3）：R=92、项径 44、角度 -100/-135/-170（以球心为原点，-90°=正上，朝左上防出画） */
-const R = 92;
+/** 几何常量（PLAN-WHEEL-FIND §1.2）：R=110、项径 44、角度 -90/-120/-150/-180（以球心为原点，-90°=正上，
+ *  朝左上防出画）——四项 30° 等距四分之一弧，相邻弦长 2·110·sin15°≈57px 无重叠 */
+const R = 110;
 function itemVars(deg: number, delayMs: number) {  const rad = (deg * Math.PI) / 180;
   return {
     "--tx": Math.round(Math.cos(rad) * R) + "px",
@@ -41,13 +42,14 @@ function itemVars(deg: number, delayMs: number) {  const rad = (deg * Math.PI) /
   } as Record<string, string>;
 }
 
-/** 轮盘项清单：顺序 = 展开弧从上到左（摘要/翻译/目录）；loading 外圈环、done 角标、dim 置灰 */
+/** 轮盘项清单：顺序 = 展开弧从上到左（摘要/翻译/目录/文内搜索）；loading 外圈环、done 角标、dim 置灰。
+ *  文内搜索项非 AI 功能（v1.7，PLAN-WHEEL-FIND）：不受 aiEnabled 门控恒可用，无 loading/done 态 */
 const items = computed(() => [
   {
     key: "summary" as const,
     icon: I.sparkle,
     label: "AI 摘要",
-    vars: itemVars(-100, 0),
+    vars: itemVars(-90, 0),
     loading: props.summaryState === "loading",
     done: props.hasSummary,
     dim: !props.aiEnabled,
@@ -57,7 +59,7 @@ const items = computed(() => [
     key: "translate" as const,
     icon: I.languages,
     label: "翻译",
-    vars: itemVars(-135, 45),
+    vars: itemVars(-120, 45),
     loading: props.trState === "loading",
     done: props.trState === "done",
     dim: !props.aiEnabled || !props.translatable,
@@ -67,30 +69,43 @@ const items = computed(() => [
     key: "toc" as const,
     icon: I.list,
     label: "目录",
-    vars: itemVars(-170, 90),
+    vars: itemVars(-150, 90),
     loading: props.tocState === "loading",
     done: props.hasToc,
     dim: !props.aiEnabled,
     title: props.tocState === "loading" ? "目录生成中…" : props.hasToc ? "打开目录列表" : "生成 / 打开目录",
   },
+  {
+    key: "find" as const,
+    icon: I.search,
+    label: "文内搜索",
+    vars: itemVars(-180, 135),
+    loading: false,
+    done: false,
+    dim: false,
+    title: "文内搜索（Ctrl+F）",
+  },
 ]);
 
-/** 联合热区矩形判定：球 rect 向左/上扩 120px（R+项半径+缓冲），鼠标球→项任何直线路径都在内。
+/** 联合热区矩形判定：球 rect 向左/上扩 140px（R110+项半径22+缓冲，PLAN-WHEEL-FIND §1.2），鼠标球→项任何直线路径都在内。
  *  rect 在 openWheel 时缓存（PLAN-PERF-2 §3.3）：球 absolute 于 .reader 不随正文滚动移动，
  *  open 期间恒定——mousemove 逐次 getBoundingClientRect 在 AI 流式渲染（布局反复脏）下是强制 reflow 源 */
 let ballRect: DOMRect | null = null;
 function inHotRect(x: number, y: number) {
   const r = ballRect ?? ballRef.value?.getBoundingClientRect();
   if (!r) return false;
-  return x >= r.left - 120 && x <= r.right + 8 && y >= r.top - 120 && y <= r.bottom + 8;
+  return x >= r.left - 140 && x <= r.right + 8 && y >= r.top - 140 && y <= r.bottom + 8;
 }
 function onDocMove(e: MouseEvent) {
   if (!pinned.value && !inHotRect(e.clientX, e.clientY)) closeWheel(); // 锁定态不移开收（点击展开的语义）
 }
 function onDocKey(e: KeyboardEvent) {
-  if (e.key !== "Escape" || !open.value) return;
+  if (e.key !== "Backspace" || !open.value) return;
+  const t = e.target as HTMLElement;
+  // 输入态守卫：hover 展开时焦点可能仍留在别处输入框，⌫ 是编辑键不该收轮盘（事件落到全局流被 typing 守卫空转）
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable) return;
   e.preventDefault();
-  e.stopPropagation(); // 不进全局键盘流（Esc 返回）；面板同开时两监听独立执行 = 双闭（方案 §1.2 约定）
+  e.stopPropagation(); // 不进全局键盘流（⌫ 逐级返回）；面板同开时两监听独立执行 = 双闭（方案 §1.2 约定）
   closeWheel();
   ballRef.value?.focus();
 }
@@ -125,7 +140,7 @@ function toggleWheel() {
   pinned.value = true; // 点击展开=锁定，移开热区不收，再次点击球才收
 }
 
-/** 键盘路径：焦点离开容器（球+项）即收起；方向键在三项间环形移动（menu role 配套） */
+/** 键盘路径：焦点离开容器（球+项）即收起；方向键在四项间环形移动（menu role 配套） */
 function onFocusOut(e: FocusEvent) {
   const t = e.relatedTarget as Node | null;
   if (t && (t instanceof Element && t.closest(".ai-wheel"))) return;
@@ -162,8 +177,8 @@ defineExpose({ ballEl: ballRef, close: closeWheel });
 </script>
 
 <template>
-  <div ref="rootRef" class="ai-wheel" :class="{ open }" role="menu" aria-label="AI 工具" @focusout="onFocusOut">
-    <!-- 三项：常驻 DOM（class 切换保 transition），收起态聚在球心且 visibility:hidden 不可聚焦。
+  <div ref="rootRef" class="ai-wheel" :class="{ open }" role="menu" aria-label="AI 工具（摘要 / 翻译 / 目录 / 搜索）" @focusout="onFocusOut">
+    <!-- 四项：常驻 DOM（class 切换保 transition），收起态聚在球心且 visibility:hidden 不可聚焦。
          双层结构（PLAN-PERF-2 §3.1）：外层管 translate 滑出，内层管 rotate/scale 弹性张开——合成弧感 -->
     <button
       v-for="(it, i) in items"
@@ -189,8 +204,8 @@ defineExpose({ ballEl: ballRef, close: closeWheel });
       class="ai-ball"
       :aria-expanded="open"
       aria-haspopup="menu"
-      aria-label="AI 工具（摘要 / 翻译 / 目录）"
-      title="AI 工具（摘要 / 翻译 / 目录）"
+      aria-label="AI 工具（摘要 / 翻译 / 目录 / 搜索）"
+      title="AI 工具（摘要 / 翻译 / 目录 / 搜索）"
       @mouseenter="openWheel()"
       @click="toggleWheel"
       @keydown="onBallKeydown"
@@ -264,7 +279,7 @@ defineExpose({ ballEl: ballRef, close: closeWheel });
     box-shadow var(--t-fast) var(--ease-out),
     visibility 0s linear var(--t-fast);
 }
-/* 展开外层：快速滑出到弧位（错峰 --d 0/45/90ms）；收起走上方 t-fast 快速收拢 */
+/* 展开外层：快速滑出到弧位（错峰 --d 0/45/90/135ms）；收起走上方 t-fast 快速收拢 */
 .ai-wheel.open .ai-witem {
   pointer-events: auto; visibility: visible; opacity: 1;
   transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty)));

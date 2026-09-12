@@ -6,8 +6,8 @@ import { I } from "./icons";
  * 自定义单选下拉（C17）：全站替代原生 <select>。
  * 原生 select 弹层在 uTools 无边框/透明窗内定位错位（2026-09 实机，添加订阅选分类触发），
  * 故面板 Teleport 到 body + fixed 定位（同时避开弹窗 overflow 裁剪），开合时按触发钮 rect 重算。
- * 键盘（design-system §8.1）：↑↓ 高亮（未开则先开）、Enter/空格 选中、Esc 关闭不移动焦点。
- * 已处理的键一律 stopPropagation——全局键盘流（Enter 开篇/Esc 返回）不得吃掉面板内按键。
+ * 键盘（design-system §8.1）：↑↓ 高亮（未开则先开）、Enter/空格 选中、⌫ 关闭不移动焦点（2026-09-12 Esc 全线换 ⌫）。
+ * 已处理的键一律 stopPropagation——全局键盘流（Enter 开篇/⌫ 返回）不得吃掉面板内按键。
  */
 const props = defineProps<{
   modelValue: string | number;
@@ -79,7 +79,8 @@ function onKeydown(e: KeyboardEvent) {
     e.preventDefault();
     e.stopPropagation();
     pick(hoverIdx.value);
-  } else if (e.key === "Escape" && open.value) {
+  } else if (e.key === "Backspace" && open.value) {
+    // ⌫ 关闭不移动焦点（触发钮是按钮非输入，无编辑冲突）；stopPropagation 防穿到全局阶梯关掉所在模态
     e.preventDefault();
     e.stopPropagation();
     close();

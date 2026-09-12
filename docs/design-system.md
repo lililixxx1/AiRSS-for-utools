@@ -17,7 +17,7 @@
 
 - **AA 是底线不是上限**：正文 ≥4.5:1，大字与非文本 ≥3:1；所有结论给出计算值，见 §3.3。
 - **双通道编码**：状态从不靠颜色单独表达（未读 = 颜色 + 字重；错误 = 红点 + 图标 + 文案）。
-- **键盘优先**：j/k/Enter/m/s/Shift+A/Ctrl+F/⌫ 全覆盖，鼠标只是捷径。主窗口 Esc 被宿主优先消费（实机验证），页内返回用 ⌫。
+- **键盘优先**：j/k/Enter/m/s/Shift+A/Ctrl+F/⌫ 全覆盖，鼠标只是捷径。⌫ 是页内唯一返回/关闭键：主窗口 Esc 被宿主优先消费（实机验证，直接隐藏插件），2026-09-12 起 Esc 分支整体移除（含分离窗），页内不响应 Esc。
 - **动效只做一件事**：确认操作已发生。120–200ms，ease-out，绝不循环装饰动画（骨架 shimmer 除外；悬浮球 idle 漂浮为第二个豁免例外——静态锚点的存在感提示，展开即暂停、reduced-motion 全局瞬切冻结，见 C19）。
 - **中文排版**：不使用斜体（CJK 斜体是伪斜）；引用用左边框 + 缩进表达；数字/时间用 `font-variant-numeric: tabular-nums` 防跳动。
 
@@ -235,7 +235,7 @@
   - 错误态：见 §4.8。
 - 分类小节：条目 h32 单行（13px/500）+ 右侧未读数；选中态同上。
 - 底部（h56，gap 8）：`导入 OPML`、`设置` 两个灰按钮（h32，r8，底 `--bg-btn-muted` 字 `--text-2`，hover 底加深）+ 末位折叠图标按钮（32×32 固定宽，同 muted 样式，`‹` 图标，无文字）。小窗宽度下两文字按钮 12px。
-- 折叠切换：底部工具行末位的图标按钮（中性灰，不占橙色配额）；折叠态移至图标轨底部（28×28 图标按钮，`›`）。点击切换 280↔64。grid 轨道随状态瞬时切换（`.app.sb-collapsed { grid-template-columns: 64px … }`），内容列全程贴合侧栏右缘、无中间空白；**禁止给 `grid-template-columns` 加 transition**——逐帧轨道重排会拖死渲染线程（2026-09 实测卡死）。
+- 折叠切换：底部工具行末位的图标按钮（中性灰，不占橙色配额）；折叠态移至图标轨底部（28×28 图标按钮，`›`）。点击切换 280↔64；分离窗窄幅下点 `›` 不占格、以浮层抽屉展开（见 §2 窄幅自适应）。grid 轨道随状态瞬时切换（`.app.sb-collapsed { grid-template-columns: 64px … }`），内容列全程贴合侧栏右缘、无中间空白；**禁止给 `grid-template-columns` 加 transition**——逐帧轨道重排会拖死渲染线程（2026-09 实测卡死）。
 - 折叠态（64px 图标轨）：品牌字缩为 28×28 橙底 `A` 字块；搜索变 28×28 图标按钮；订阅源变源名首字方块（24×24，r-sm，底 `--bg-selected` 字 `--accent-deep`，右下角 8px 未读徽点）；底部只留三个图标（含展开按钮 `›`）。悬停显示 tooltip（源全名）。
 
 **内容区（520px）**
@@ -266,15 +266,14 @@
   - 正文 `--reading-fs`（14/16/18/22）· 行高 1.75 · 段距 0.75em · `--text-1`；`h2` 18px/650 上下 1em；`blockquote` 左边框 3px `--accent-strong` + padding-left 14 + 色 `--text-2`（**不用斜体**）；`img` 圆角 8 + `max-height 60vh`；`a` 色 `--accent-deep` 下划线；`code` 底 `--bg-hover` r-sm padding 2 6 mono 0.9em。
 - 底部操作条 h52（粘性，白底 + 顶边框，gap 8）：`已读`切换（check 图标，已读态按钮底 `--bg-selected` 字 `--accent-deep`）/ `收藏`（bookmark，激活实心橙）｜弹簧｜`复制链接`（copy）/ `浏览器打开`（external-link）。全部 ≥28×32 触达。
 
-**分离窗 = 第三栏（弹性 ≥440，常驻，不滑入）**：同结构，标题升 24px，无"返回"按钮（列表与阅读并排，Esc 语义改为"焦点回列表"）。窄面板下行宽按 `100% − 48px` 自然收窄，不做居中留白。
+**分离窗 = 第三栏（弹性 ≥440，常驻，不滑入）**：同结构，标题升 24px，无"返回"按钮（列表与阅读并排；⌫ 走全局逐级返回，分离窗内不关阅读，清搜索为止）。窄面板下行宽按 `100% − 48px` 自然收窄，不做居中留白。
 
 ### 4.4 分离窗口三栏（1200×800）
 
 - 侧栏 280（同 4.1）+ 列表栏 400（固定列表视图，含自己的精简工具栏 h48：视图名 + 计数 + 刷新）+ 阅读栏 flex ≥440。
 - 列表栏与阅读栏之间 1px `--border`；阅读栏底 `--bg-panel`，列表栏底 `--bg-panel`，侧栏底 `--bg-app`。
-- detach 时 `removeSubInput()`（分离窗无宿主子输入框），侧栏搜索框成为唯一搜索入口。
-- detach 时 `removeSubInput()`（分离窗无宿主子输入框），侧栏搜索框成为唯一搜索入口；侧栏折叠（手动/窄幅自动）时由图标轨的搜索钮唤出浮层输入兜底（Ctrl+F 同路）。
-- 窄幅自适应（2026-09-11）：window resize 监听维护 `ui.winNarrow`（<1080），`ui.narrowDetached` getter 驱动 `.app.detached.sb-auto`——侧栏自动降图标轨 64 + 列表/阅读最低宽下调（≤704 再压一档），三栏在 604px 地板内恒可见，不写 `sidebarCollapsed` 设置。AI 悬浮球锚定正文区容器 `.reader-body`（不含底栏），底距 12px 随底栏换行高度自然让位。
+- detach 时 `removeSubInput()`（分离窗无宿主子输入框），侧栏搜索框成为唯一**列表搜索**入口；侧栏折叠（手动/窄幅自动）时由图标轨的搜索钮唤出浮层输入兜底（列表态 Ctrl+F 同路；v1.7 起轨内搜索钮恒为列表搜索不再改道，阅读态文内搜索入口=AI 轮盘搜索项/Ctrl+F，两搜索面双向互斥——PLAN-WHEEL-FIND）。
+- 窄幅自适应（2026-09-11）：window resize 监听维护 `ui.winNarrow`（<1080），`ui.narrowDetached` getter 驱动 `.app.detached.sb-auto`——侧栏自动降图标轨 64 + 列表/阅读最低宽下调（≤704 再压一档），三栏在 604px 地板内恒可见，不写 `sidebarCollapsed` 设置。窄幅下点轨内展开钮 `›` 以**浮层抽屉**展开侧栏（2026-09-12：aside 变 fixed 全高 280 盖在列表列上方 + 半透明背板 `--scrim`；z 阶 背板 500/抽屉 501 低于 modal 600；选中订阅/背板/⌫/拖宽即关，不写设置）。AI 悬浮球锚定正文区容器 `.reader-body`（不含底栏），底距 12px 随底栏换行高度自然让位。
 
 ### 4.5 设置页（覆盖内容列，同阅读面板层级 z300）
 
@@ -295,7 +294,7 @@
 2. **发现候选**（单选列表）：每项 = radio + 源标题 13px/500 + 类型徽章（RSS/Atom/JSON Feed，11px）+ `最近 30 篇` 12px `--text-3` + url mono 11px；默认选第一个。底部 `上一步`（幽灵）/ `继续`（主按钮）。
 3. **确认**：名称输入框（预填发现标题）· 分类选择（现有分类芯片 + `+ 新建`，选中芯片底 `--bg-selected` 字 `--accent-deep`）· 刷新频率下拉（默认跟随全局 30 分钟）。底部 `取消` / `添加`（主按钮，点击后 toast `已添加 · 正在抓取首批文章`）。
 - **失败态**：alert 图标 + `未在该地址发现 Feed` + 已试路径列表（mono：`/feed → 404`、`/rss.xml → 404`、`/atom.xml → 超时`）+ 手动输入框（占位 `粘贴 Feed 直链…`）+ 提示文字 `也可试试 RSSHub：https://rsshub.app/{域名}（仅提示，不自动请求）` + `重试` 按钮。
-- 交互：role=dialog + aria-modal，Tab 圈禁，Esc = 取消，初始焦点 = 首个输入框/默认选项，关闭后焦点回触发钮。
+- 交互：role=dialog + aria-modal，Tab 圈禁，⌫ = 取消（焦点在非输入控件时；输入框内 ⌫ 恒为编辑键，取消走 ×/取消钮），初始焦点 = 首个输入框/默认选项，关闭后焦点回触发钮。
 
 ### 4.7 空态（三态，占据整个内容列）
 
@@ -420,8 +419,8 @@
 
 - **背景**：原生 `<select>`/`<datalist>` 弹层由 OS 绘制，在 uTools 无边框/透明窗内定位错位（实机：添加订阅选分类时弹层偏移）。全站替换为自定义组件。
 - **DropdownSelect**（单选）：触发钮视觉与 `.input`（C2）同族（36h / border-strong / r-md / bg-panel），右端 chevronDown（开合旋转 180°）；面板 Teleport 到 body + `position: fixed` 按触发钮 rect 定位（避开弹窗 `overflow` 裁剪），下方空间不足翻转到上方；`max-height 264` 滚动；项高 32，当前项 `--accent-deep`/600 + check 图标，hover `--bg-hover`。深色面板 `--bg-elevated`。z 取 `--z-toast`（面板会在 z-modal 弹层内使用，必须更高）。
-- **ComboboxInput**（可输入下拉，分类选择）：输入框本体复用 `.input`，右侧 chevron 开合；聚焦/输入即出建议（不区分大小写 includes，≤12 条），`↑↓` 高亮、Enter 取高亮项（无高亮保留键入文本，支持新建分类）、Esc 关闭不移动焦点。
-- **键盘纪律**：组件内已处理的键（↑↓/Enter/Space/Esc）一律 `stopPropagation`——全局键盘流（Enter 开篇/⌫ 返回）不得穿透面板。滚动/resize 即关面板（fixed 面板不随滚动移动）。输入态 ⌫ 仍为编辑键。
+- **ComboboxInput**（可输入下拉，分类选择）：输入框本体复用 `.input`，右侧 chevron 开合；聚焦/输入即出建议（不区分大小写 includes，≤12 条），`↑↓` 高亮、Enter 取高亮项（无高亮保留键入文本，支持新建分类）、输入框空时 ⌫ 关闭不移动焦点（非空为编辑键）。
+- **键盘纪律**：组件内已处理的键（↑↓/Enter/Space/⌫）一律 `stopPropagation`——全局键盘流（Enter 开篇/⌫ 返回）不得穿透面板。滚动/resize 即关面板（fixed 面板不随滚动移动）。输入态 ⌫ 仍为编辑键（空值才关浮层）。
 - **已部署位置**：设置页（刷新频率/每源保留/AI 模型/自动摘要）、添加订阅与编辑订阅弹窗（分类 Combobox + 刷新频率）。
 
 ---
@@ -439,13 +438,22 @@
 
 - **背景**：AI 入口从阅读顶栏按钮（v1.4 AiToolsPanel 触发钮）迁为阅读区右下悬浮轮盘——hover 即达、点击直达动作，不打断阅读动线；顶栏 AI 按钮撤除。
 - **悬浮球**：44px 圆钮 absolute 于 `.reader`（right 20 / bottom 64，footer 上方不遮操作条），z 取 `--z-sticky`；`--bg-panel` + border-strong + shadow-1、sparkle 18px `--text-2`、常态 opacity 0.92，hover/展开加深（bg-card-hover + `--accent-deep` 字）；任一 AI 任务在飞显呼吸点（6px `--accent-strong`，1.1s 脉动，绝对定位球内右上）。不随正文滚动（不在 .reader-scroll 内）；detached 分离窗两种定位模式下均成立。
-- **轮盘几何**：三项 44px 圆钮沿**左上四分之一弧**展开（球贴右下角，朝右/朝下会出画）：摘要 -100°（-17,-91）/ 翻译 -135°（-65,-65）/ 目录 -170°（-90,-16），R=92px；相邻弦长 ≈55px 无重叠。展开动画只 transition transform/opacity（收起态聚球心 scale(.35) → 圆周 scale(1)，`--t-med` ease-out，错峰 0/20/40ms）；reduced-motion 全局瞬切天然合规，不碰布局轨道。
-- **热区模型**：容器 `pointer-events:none` 不挡正文（点击/选择穿透），仅球与展开态项 auto；open 期间挂 document mousemove——坐标在「球 rect 左/上各扩 120px」联合矩形内保活（连续区域，球→项任何直线路径无缝，无间隙误收起），移出即收；keydown 捕获 Esc 收起 + 焦点回球（hover 展开时焦点可能在 body，容器级监听收不到）。**两档展开语义（2026-09-09 定）**：hover = 预览（移开即收）；**点击球 = 展开并锁定**（pinned，移开热区不收，再次点球 / 点功能项 / Esc / 切文才收）。
+- **轮盘几何**：四项 44px 圆钮沿**左上四分之一弧** 30° 等距展开（球贴右下角，朝右/朝下会出画；v1.7 起四项，PLAN-WHEEL-FIND）：摘要 -90°（0,-110）/ 翻译 -120°（-55,-95）/ 目录 -150°（-95,-55）/ 文内搜索 -180°（-110,0），R=110px；相邻弦长 2·110·sin15°≈57px 无重叠。展开动画只 transition transform/opacity（收起态聚球心，内层 rotate(-50deg) scale(0.2) → 弧位 scale(1)，`--t-med` ease-out，错峰 0/45/90/135ms）；reduced-motion 全局瞬切天然合规，不碰布局轨道。文内搜索项非 AI 功能恒可用（见项状态语汇）。
+- **热区模型**：容器 `pointer-events:none` 不挡正文（点击/选择穿透），仅球与展开态项 auto；open 期间挂 document mousemove——坐标在「球 rect 左/上各扩 140px」联合矩形内保活（=R110+项半径22+缓冲8，连续区域，球→项任何直线路径无缝，无间隙误收起），移出即收；keydown 捕获 ⌫ 收起 + 焦点回球（hover 展开时焦点可能在 body，容器级监听收不到；输入态豁免——焦点在别处输入框时 ⌫ 是编辑键）。**两档展开语义（2026-09-09 定）**：hover = 预览（移开即收）；**点击球 = 展开并锁定**（pinned，移开热区不收，再次点球 / 点功能项 / ⌫ / 切文才收）。
 - **动效（双层分段时序，2026-09-09 三次打磨定稿）**：项为双层结构——外层 `.ai-witem` 管 translate（球心 → 弧位，`--t-med` ease-out，错峰 --d 0/45/90ms），内层 `.ai-witem-in` 管 rotate(-50deg)+scale(0.2) 弹性张开（`--t-slow --ease-spring`，delay = --d+40ms）——位移先到位、旋转缩放后收口，合成「甩出 → 张开」的弧感（单层同缓动是直线插值，观感死板的根因）。展开时球外圈一次性涟漪（::after，scale 1→1.9 / opacity .45→0 / 420ms；**基础态必须 opacity:0**——播完与 reduced-motion 瞬切都回落基础态）+ 球体 shadow-1→shadow-2 抬升（transform 已被 idle 漂浮占用，本体不做缩放）；收起 = t-fast 快速收拢（内外层都显式 t-fast，无弹性不拖沓）；球 idle 轻漂浮（translateY ±3px / 3.2s，展开时暂停）；图标层 hover/展开弹性放大微转（与球的 float 分层不抢 transform）；展开态项 hover 回弹 = 内层 scale 1.12 + 外层 shadow-2（transform 分量归内层管）。busy 旋转环/done 角标挂外层不随入场旋转。全部走 transform/opacity 合成器属性，reduced-motion 全局瞬切天然合规。
 - **键盘（menu-button 惯例）**：球聚焦**不**自动展开（避免 mousedown-focus 与 click toggle 互搏），方向键/Enter/click 展开；容器 `role="menu"`、项 `role="menuitem"`、方向键环形导航；**收起态 `visibility:hidden` + `tabindex=-1` 双保险**——opacity+pointer-events 不把 button 移出 Tab 序，会留键盘盲焦点。焦点转移到项用 nextTick（微任务）：rAF 在后台/节流窗格被冻结，焦点会滞留球上（2026-09 回归实测修复）。
-- **项状态语汇**：进行中 = 外圈 2px accent 旋转环（inset -4）；已有产物 = 右上 6px `--accent-strong` 实心点；不可用（AI 关 / 中文正文翻译项）= opacity .45 + cursor:default。title 原生 tooltip（翻译 loading 态写「翻译中，点击取消」，让取消可发现）。
-- **点击语义**（直达动作，PLAN-AI-WHEEL §1.4）：摘要=生成 / 重试 / 已有则滚顶；翻译=开始 / loading 再点=取消（abort，runTranslate 的 ABORTED 分支自愈）/ 显隐译文；目录=开列表 / 无且可生成则生成后自动开面板 / AI 关与短文只开面板出文案（**AI 关不得触发生成**——tocAiEligible 不含 aiEnabled，撞 preload 硬门控会弹假错）。面板开着点球=先关面板再展开（AiToolsPanel onDocDown 豁免触发钮，须显式互斥）；面板+轮盘同开时 Esc 一次双闭。
+- **项状态语汇**：进行中 = 外圈 2px accent 旋转环（inset -4）；已有产物 = 右上 6px `--accent-strong` 实心点；不可用（AI 关 / 中文正文翻译项）= opacity .45 + cursor:default。**文内搜索项（v1.7）非 AI 功能：不受 aiEnabled 置灰、无 loading/done 态，AI 关时恒可点**。title 原生 tooltip（翻译 loading 态写「翻译中，点击取消」，让取消可发现；搜索项写「文内搜索（Ctrl+F）」）。
+- **点击语义**（直达动作，PLAN-AI-WHEEL §1.4；搜索项 PLAN-WHEEL-FIND）：摘要=生成 / 重试 / 已有则滚顶；翻译=开始 / loading 再点=取消（abort，runTranslate 的 ABORTED 分支自愈）/ 显隐译文；目录=开列表 / 无且可生成则生成后自动开面板 / AI 关与短文只开面板出文案（**AI 关不得触发生成**——tocAiEligible 不含 aiEnabled，撞 preload 硬门控会弹假错）；**文内搜索=开 C20 搜索栏（恒可用；顺关轨内列表搜索面板——两搜索面双向互斥，反向见 §4 分离窗轨内搜索钮；已开态再点=重聚焦+全选，走 `ui.readerFindFocus` 令牌）**。面板开着点球=先关面板再展开（AiToolsPanel onDocDown 豁免触发钮，须显式互斥）；面板+轮盘同开时 ⌫ 一次双闭。
 - **AiToolsPanel 联动**：triggerEl 换绑球元素；place() 增**向上翻转**（below<200 → bottom 定位，面板底贴球顶 6px，高度受限于上方空间）——球在视口底部，恒走翻转分支。
+
+### C20 阅读文内搜索栏（ReaderFind，v1.6 增补；v1.6.1 悬浮化改版）
+
+- **定位**：阅读态（view=reader 且有文章）下 Ctrl+F 与 **AI 轮盘搜索项**开的「文内搜索」——搜索当前文章渲染后正文、命中列表点击跳转（v1.7 起，PLAN-WHEEL-FIND：轨内搜索钮撤改道回归纯列表搜索，两入口族分离；两搜索面双向互斥——任一侧打开顺关另一侧）。列表搜索管线（侧栏搜索框/轨内面板/宿主子输入框 → data.search）语义不变；展开态侧栏搜索框与轨内面板在阅读态仍过滤列表（已知局限按窗口分叉：非分离窗列表被阅读层盖住时表现为无反馈，⌫ 关阅读即见结果；分离窗列表列可见、过滤有正常反馈；且 data.search 无命中时 filtered 为空，阅读态 j/k/Enter/m/s 静默失效，清词恢复）。
+- **形态**：`.reader-body` 内 **absolute 悬浮卡（v1.6.1，2026-09-12 用户裁决，推翻 v1.6 flex 子项方案）**——右上锚定（top 60=顶栏之下不盖按钮、right 12），`width:calc(100%-24px) max-width:420px`，`--z-reader`（300，盖正文与轮盘 200、低于 dropdown/scrim）、`--r-lg` 圆角 + `--shadow-3` + 1px `--border`，bg-panel（dark: bg-elevated）；**不占 flex 行高，正文滚动区尺寸恒定**，遮挡由跳转补偿消化（见跳转条）。`role="search"`；控制行 flex-wrap（窄列输入框与按钮组自动换行）：搜索图标 + 输入框（flex 1 1 160px）+ 计数 `N 处 · 当前 i`（截断显 `N+ 处`）+ 上一处/下一处（chevronDown 旋转 180° 复用）/关闭 icon-btn。
+- **命中列表**：面板 `max-height: calc(100% - 72px)`（锚容器 .reader-body 定高，百分比可解析）+ 列表 `max-height:288px` 纯定值双上限（**上限挂面板自身——勿把 max-height 百分比写在 auto 高度父级的子元素上**，indefinite 整体失效，2026-09-12 实机教训；max-* 内 min(…,百分比) 有 Chromium 百分比分支不生效怪癖，一律不叠 min()），列表 `flex:1 + min-height:0` 内部滚动，约 8 行可见；行 = button + `aria-label="第 i 处"`，上下文片段单行 ellipsis，命中词 `<mark class="hl">`（C18 同族语汇）；hover bg-hover、当前行 bg-selected；点击行跳转并把焦点交还输入框（点行后 j/k 不误切文）。空态文案「**正文内无命中**」——范围只有 .ra-content 正文（标题/AI 摘要卡/译文块不参与，文案不得写「无命中」）。
+- **搜索口径**：渲染后 DOM，大小写不敏感，空白折叠；FIND_SELECTOR 按 sanitize 白名单推导 + root 直挂裸文本 pseudo-block 兜底（discard 剥壳产物）；每块 ≤10 行、总 ≤200 行（截断行尾注「命中过多，仅显示前 N 处」）；150ms 防抖。搜索词与正文同口径归一（粘贴带换行/tab 不掉命中）。
+- **跳转**：目标块顶对齐「**面板底沿 + 8**」——悬浮卡与正文列横向相交时补偿遮挡（宽列正文列与右侧面板不相交则退化为经典顶对齐）；rect 差算 y 免 offsetParent 歧义 + 命中块 `find-flash` 瞬时底色（`--accent-soft`，1.2s 后移除；不走动画——reduced-motion 下仍可见）；输入 Enter=下一处 / Shift+Enter=上一处循环；输入即自动跳第一处（浏览器 Ctrl+F 同款）。阅读位置记忆会被跳转覆盖写盘——有意接受。
+- **键盘**：⌫ 关（输入框空时输入框自身处理，焦点在别处走逐级返回）；**主窗 Esc 被宿主消费隐藏插件（既有行为），2026-09-12 起 Esc 分支整体移除（含分离窗），⌫ 为唯一返回/关闭键**。面板已开再 Ctrl+F / 再点轮盘搜索项 = 重聚焦 + 全选（`ui.readerFindFocus` 令牌驱动——同值赋 open 不触发 watch，PLAN-WHEEL-FIND §2.5 修复 v1.6 名不副实缺陷）。已知局限：短窗（.reader-body 高 <约 430px）面板 max-height 封顶后底沿与右下轮盘带纵向重叠（z300 盖 z200），⌫/× 关闭即让位。
 
 
 ## 6. 交互态矩阵
@@ -481,7 +489,7 @@
 | `done-all` | 全部已读 | 16 |
 | `list` / `grid` | 视图切换 | 16 |
 | `sort` | 排序下拉（chevrons 上下） | 16 |
-| `search` | 搜索框 | 16 |
+| `search` | 搜索框 / AI 轮盘文内搜索项 | 16 |
 | `plus` | 添加订阅源 | 16/18 |
 | `settings` | 设置（sliders 三线样式，避免与 sun 混淆） | 16 |
 | `upload` / `download` | OPML 导入 / 导出 | 16 |
@@ -522,16 +530,16 @@
 | `m` | 切换当前篇已读 | 乐观翻转 + 180ms 淡出（§9） |
 | `s` | 切换星标 | 星标图标 160ms 缩放反馈 |
 | `Shift+A` | 全部标记已读 | 直接执行 + toast；未读数动画归零 |
-| `Ctrl+F` | 聚焦搜索框 | preventDefault；与 uTools SubInput 同源（store.search） |
-| `⌫ Backspace` | 逐级返回（主键位） | 弹层/下拉开→关闭 → 阅读面板→返回列表 → 退设置 → 清搜索 → 顶层无操作。2026-09-05 实机验证：主窗口 Esc 被宿主优先消费（直接隐藏插件，页面拦不住），故 ⌫ 承担页内返回；Esc 分支保留，分离窗内无宿主拦截仍生效 |
+| `Ctrl+F` | 列表态聚焦搜索框；阅读态开文内搜索栏（C20，v1.6 起） | preventDefault；与 uTools SubInput 同源（store.search）；已开态重聚焦全选（v1.7 令牌修复） |
+| `⌫ Backspace` | 逐级返回（**唯一返回/关闭键**） | 弹层/下拉开→关闭 → sbDrawer→收 → 文内搜索→关 → 阅读面板→返回列表 → 退设置 → 清搜索 → 顶层无操作；长按（repeat）只走一级。2026-09-05 实机验证：主窗口 Esc 被宿主优先消费（直接隐藏插件，页面拦不住）；2026-09-12 用户裁决 Esc 分支整体移除（含分离窗），页内不响应 Esc（PLAN-ESC-BACKSPACE） |
 
-阅读面板内：`j/k` 翻篇（上一篇/下一篇），`⌫` 返回；弹层内：Tab 圈禁 + `⌫`/Esc 取消（输入态 ⌫ 仍为编辑键）。
+阅读面板内：`j/k` 翻篇（上一篇/下一篇），`⌫` 返回；浮层内：Tab 圈禁 + `⌫` 取消——搜索/下拉浮层输入框**空时** ⌫ 关闭（非空为编辑键）；模态输入框内 ⌫ 恒为编辑键（空值也不关，防误清表单），关闭走 ×/取消钮。
 
 ### 8.2 焦点管理
 
 - 文章列表 roving tabindex：容器 `tabindex=0`，仅当前项 `tabindex=0` 其余 `-1`；`aria-activedescendant` 指向当前项。
 - 弹层打开：焦点移入首个控件；关闭：焦点还原触发元素。`role="dialog" aria-modal="true" aria-labelledby`。
-- 下拉：`aria-expanded` + `role="listbox"/option` + `aria-selected`；方向键导航，Esc 关闭不移动焦点。**禁用原生 `<select>`/`<datalist>`**——其弹层是 OS 原生弹窗，uTools 无边框窗内定位错位（2026-09 实机），一律用 C17 组件。
+- 下拉：`aria-expanded` + `role="listbox"/option` + `aria-selected`；方向键导航，⌫ 关闭不移动焦点。**禁用原生 `<select>`/`<datalist>`**——其弹层是 OS 原生弹窗，uTools 无边框窗内定位错位（2026-09 实机），一律用 C17 组件。
 - 开关 `role="switch" aria-checked`；分段控件 `role="radiogroup"` + `radio`；视图切换 `role="group"` + `aria-pressed`。
 - 侧栏折叠按钮 `aria-expanded` + `aria-label="折叠侧栏/展开侧栏"`。
 
@@ -556,7 +564,7 @@
 | 阅读面板（小窗） | 200ms 滑入 `translateX(16px)→0` + 淡入；返回反向 160ms |
 | 侧栏折叠 | width 280↔64，200ms `--ease-out`；文字 opacity 先行 120ms |
 | 弹层 | scrim 160ms；面板 200ms scale 0.98→1 + 淡入 |
-| 悬浮轮盘展开（C19） | 外层 translate `--t-med --ease-out` 错峰 0/45/90ms；内层 rotate/scale `--t-slow --ease-spring`（delay = --d+40ms）；球 idle 漂浮 3.2s（§21 豁免例外，展开时暂停） |
+| 悬浮轮盘展开（C19） | 外层 translate `--t-med --ease-out` 错峰 0/45/90/135ms；内层 rotate/scale `--t-slow --ease-spring`（delay = --d+40ms）；球 idle 漂浮 3.2s（§21 豁免例外，展开时暂停） |
 | 骨架 shimmer | 1.4s linear infinite，`--skel-b` 高光带 -25%→125% |
 | 刷新进度条 | 1.6s ease-in-out infinite alternate（位移渐变）；刷新中图标 0.9s 旋转 |
 | 统计数字变化 | 120ms 淡入（旧值即逝，不做计数动画） |

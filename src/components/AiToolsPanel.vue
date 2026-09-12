@@ -77,9 +77,12 @@ function onWinScroll(e: Event) {
   emit("close");
 }
 function onKeydown(e: KeyboardEvent) {
-  if (e.key !== "Escape" || !props.open) return;
+  if (e.key !== "Backspace" || !props.open) return;
+  const t = e.target as HTMLElement;
+  // 输入态守卫：面板开着 Ctrl+F 开文内搜索（无 mousedown 面板不关）时焦点落在搜索框——⌫ 是编辑键，不连带关面板
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable) return;
   e.preventDefault();
-  e.stopPropagation(); // 已处理的键不进全局键盘流（Esc 返回/隐藏插件）
+  e.stopPropagation(); // 已处理的键不进全局键盘流（⌫ 逐级返回）
   emit("close");
 }
 watch(

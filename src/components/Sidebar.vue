@@ -27,10 +27,24 @@ function focusSearch() {
 }
 defineExpose({ focusSearch });
 
-/** 轨内搜索钮：开面板即聚焦（与 focusSearch 的 Ctrl+F 路径行为一致） */
+/** 轨内搜索钮：折叠态列表搜索唯一入口（PLAN-WHEEL-FIND v1.7 撤阅读态改道——文内搜索入口=AI 轮盘第四项/Ctrl+F，
+ *  侧栏族恒为列表搜索）。开面板顺关文内搜索：两搜索面双向互斥（S2 纪律，审核 P0-1）。
+ *  已知局限：非分离窗阅读态列表被阅读层盖住，输入=无反馈过滤（⌫ 关阅读即见，同展开态搜索框 C20 记载）；
+ *  data.search 无命中时 filtered 为空，阅读态 j/k/Enter/m/s 静默失效，清词恢复 */
 function toggleRailSearch() {
   ui.railSearch = !ui.railSearch;
-  if (ui.railSearch) nextTick(() => railSearchInput.value?.focus());
+  if (ui.railSearch) {
+    ui.readerFind = false;
+    nextTick(() => railSearchInput.value?.focus());
+  }
+}
+
+/** 轨内搜索输入框 ⌫：空时关面板，非空是编辑键（2026-09-12 Esc 全线换 ⌫，勿用 .prevent 修饰符——无条件生效会拦掉编辑态） */
+function onRailSearchKey(e: KeyboardEvent) {
+  if (e.key !== "Backspace" || data.search !== "") return;
+  e.preventDefault();
+  e.stopPropagation();
+  ui.railSearch = false;
 }
 
 const menuOpenId = ref<string | null>(null);
@@ -60,18 +74,22 @@ async function onDrop(i: number) {
 function select(kind: "all" | "unread" | "starred") {
   data.filter = { kind };
   ui.cursor = 0;
+  navFold();
 }
 function selectFeed(f: Feed) {
   data.filter = { kind: "feed", value: f._id };
   ui.cursor = 0;
+  navFold();
 }
 function selectCategory(name: string) {
   data.filter = { kind: "category", value: name };
   ui.cursor = 0;
+  navFold();
 }
 function selectTag(name: string) {
   data.filter = { kind: "tag", value: name };
   ui.cursor = 0;
+  navFold();
 }
 
 function toggleMenu(f: Feed) {
@@ -173,6 +191,21 @@ function toggleCollapse() {
   settings.set("sidebarCollapsed", !settings.sidebarCollapsed);
 }
 
+/** 轨内展开钮：宽幅=写设置真展开；窄幅=开浮层抽屉（窗口装不下展开态三栏，280+300+340>800，不能占格） */
+function onExpandClick() {
+  if (autoNarrow.value) {
+    ui.sbDrawer = true;
+    nextTick(() => searchInput.value?.focus());
+  } else {
+    toggleCollapse();
+  }
+}
+/** 展开态折叠钮：抽屉态=收抽屉（不动设置）；常规=写设置 */
+function onCollapseClick() {
+  if (drawerOpen.value) ui.sbDrawer = false;
+  else toggleCollapse();
+}
+
 const onDocClick = () => closeMenu();
 onMounted(() => document.addEventListener("click", onDocClick));
 onBeforeUnmount(() => document.removeEventListener("click", onDocClick));
@@ -180,15 +213,25 @@ onBeforeUnmount(() => document.removeEventListener("click", onDocClick));
 const btnMuted = "sb-btn";
 // 折叠态 = 用户设置 ∪ 分离窗窄幅自动（App.vue onWinResize 维护 winNarrow；自动折叠不写设置，拖宽即还原）
 const autoNarrow = computed(() => ui.narrowDetached);
-const collapsed = computed(() => settings.sidebarCollapsed || autoNarrow.value);
+// 窄幅抽屉：展开改 fixed 浮层盖在列表列上方（网格不动），关闭即回图标轨
+const drawerOpen = computed(() => autoNarrow.value && ui.sbDrawer);
+const collapsed = computed(() => (settings.sidebarCollapsed || autoNarrow.value) && !drawerOpen.value);
 // 侧栏展开时搜索回到常驻输入框，浮层态复位
 watch(collapsed, (c) => {
   if (!c) ui.railSearch = false;
 });
+// 拖宽后侧栏回到常驻形态，抽屉失去存在意义，自动关
+watch(autoNarrow, (n) => {
+  if (!n) ui.sbDrawer = false;
+});
+/** 抽屉内的导航动作（选源/分类/标签/统计/进设置）完成后收抽屉 */
+function navFold() {
+  if (ui.sbDrawer) ui.sbDrawer = false;
+}
 </script>
 
 <template>
-  <aside class="sidebar" :class="{ collapsed }" aria-label="订阅导航">
+  <aside class="sidebar" :class="{ collapsed, drawer: drawerOpen }" aria-label="订阅导航">
     <div class="sb-scroll">
       <!-- 品牌区 -->
       <div class="brand" v-if="!collapsed">
@@ -211,10 +254,10 @@ watch(collapsed, (c) => {
           placeholder="搜索文章..."
           :value="data.search"
           @input="data.setSearch(($event.target as HTMLInputElement).value)"
-          @keydown.esc.stop.prevent="ui.railSearch = false"
+          @keydown="onRailSearchKey"
           aria-label="搜索文章"
         />
-        <span class="kbd">Esc</span>
+        <span class="kbd">⌫</span>
       </div>
 
       <!-- 搜索 -->
@@ -334,18 +377,21 @@ watch(collapsed, (c) => {
     <div class="sb-footer" :class="{ collapsed }">
       <template v-if="!collapsed">
         <button :class="btnMuted" @click="pickOpml()"><I.upload />导入OPML</button>
-        <button :class="btnMuted" @click="ui.openSettings()"><I.settings />设置</button>
-        <button class="sb-btn sb-toggle" aria-label="折叠侧栏" aria-expanded="true" title="折叠侧栏" @click="toggleCollapse"><I.chevronLeft /></button>
+        <button :class="btnMuted" @click="navFold(); ui.openSettings()"><I.settings />设置</button>
+        <button class="sb-btn sb-toggle" aria-label="折叠侧栏" aria-expanded="true" title="折叠侧栏" @click="onCollapseClick"><I.chevronLeft /></button>
       </template>
       <template v-else>
         <button class="icon-btn" aria-label="导入OPML" title="导入OPML" @click="pickOpml()"><I.upload /></button>
         <button class="icon-btn" aria-label="设置" title="设置" @click="ui.openSettings()"><I.settings /></button>
-        <!-- 窄幅自动折叠时藏起展开钮：点了也不会展开（窗口装不下），留死键不如不给；拖宽窗口自动还原 -->
-        <button v-if="!autoNarrow" class="icon-btn" aria-label="展开侧栏" title="展开侧栏" @click="toggleCollapse"><I.chevronRight /></button>
+        <!-- 窄幅：展开=浮层抽屉（onExpandClick，不占格不写设置）；宽幅仍是设置开关 -->
+        <button class="icon-btn" aria-label="展开侧栏" title="展开侧栏" @click="onExpandClick"><I.chevronRight /></button>
       </template>
       <input ref="opmlFileInput" type="file" accept=".xml,.opml,text/xml,text/x-opml" hidden @change="onOpmlFile" />
     </div>
   </aside>
+
+  <!-- 窄幅抽屉背板：点外关闭（z 阶 §3.8：背板 --z-scrim，抽屉在其上 1 级、仍低于 modal——抽屉里发起的删除确认等弹层必须盖住抽屉） -->
+  <div class="sb-drawer-scrim" v-if="drawerOpen" @click="ui.sbDrawer = false"></div>
 
   <EditFeedModal v-if="editingFeed" :feed="editingFeed" @close="editingFeed = null" />
 </template>
@@ -363,6 +409,22 @@ watch(collapsed, (c) => {
   flex-shrink: 0;
 }
 .sidebar.collapsed { width: 64px; }
+
+/* 窄幅抽屉态（ui.sbDrawer，2026-09-12 实机：上一版把窄幅展开钮藏掉防死键，侧栏被永久锁死在图标轨——
+   用户打不开侧栏）。侧栏脱离网格流浮起盖在列表列上方（64px 轨留空、被抽屉覆盖），关闭即回图标轨。
+   前提：App.vue 已给 .main-col/.reader-col 显式 grid-column——fixed 脱流后剩余子项会被自动排进第 1 轨 */
+.sidebar.drawer {
+  position: fixed; left: 0; top: 0; bottom: 0;
+  z-index: calc(var(--z-scrim) + 1);
+  box-shadow: var(--shadow-3);
+  border-right: 1px solid var(--border-strong);
+  animation: sb-drawer-in var(--t-fast) var(--ease-out);
+}
+@keyframes sb-drawer-in {
+  from { transform: translateX(-12px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.sb-drawer-scrim { position: fixed; inset: 0; z-index: var(--z-scrim); background: var(--scrim); }
 
 .sb-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 16px 16px 8px; }
 

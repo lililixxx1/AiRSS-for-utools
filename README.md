@@ -54,7 +54,7 @@ python scripts/make-logo.py     # 重新生成 logo
 - 打开即增量刷新：ETag / If-Modified-Since、12s 请求超时、90s 单轮预算、并发 3、gzip/deflate/br 解压、GBK 编码兜底
 - 判重与更新：`guid‖link‖title` SHA-256 前 12 位为 id；contentHash 变化才覆盖内容；read/starred 恒保留；写序（items 全成功才推进 feed）
 - 卡片（默认）/列表双视图 + 可变高虚拟滚动；阅读面板（sanitize 正文、4 档字号、衬线开关、行宽 42em、阅读进度记忆）
-- 已读/星标/全部已读；键盘流 j/k/Enter/m/s/Shift+A/Ctrl+F/Esc
+- 已读/星标/全部已读；键盘流 j/k/Enter/m/s/Shift+A/Ctrl+F/⌫（Esc 被 uTools 宿主消费，页内不作键）
 - SubInput 搜索 + 侧栏搜索同源；mainPush 未读建议位；新文章系统通知（按源）
 - OPML 导入（file input，分批+进度）/ 导出（showSaveDialog）
 - 浅/深/跟随三态主题（matchMedia 实时）；分离窗三栏（detach 自动切换）；侧栏折叠
@@ -77,7 +77,8 @@ python scripts/make-logo.py     # 重新生成 logo
 
 ## 实机待验证项（spike，见 PLAN §12）
 
-- [x] Esc 拦截优先级（宿主 vs 页面）——2026-09-05 实机验证：宿主优先，主窗口内按 Esc 直接隐藏插件（页面 preventDefault 拦不住）。页内逐级返回改由 ⌫ Backspace 承担（Esc 分支保留，分离窗内仍生效）
+- [x] Esc 拦截优先级（宿主 vs 页面）——2026-09-05 实机验证：宿主优先，主窗口内按 Esc 直接隐藏插件（页面 preventDefault 拦不住）。页内逐级返回由 ⌫ Backspace 承担；2026-09-12 用户裁决 Esc 分支整体移除（含分离窗），⌫ 为唯一页内返回/关闭键（PLAN-ESC-BACKSPACE）
+- [ ] ⌫ 逐级返回实机复验（主窗/分离窗）：返回阶梯（模态→抽屉→文内搜索→关阅读→退设置→清搜索）、轮盘/AI 面板/下拉/轨内搜索/文内搜索的 ⌫ 关闭与输入态（空值才关）表现
 - [ ] mainPush 建议位存续规则与 icon 相对路径表现
 - [x] allDocs 万级真实耗时——v1.3 本地实测（`node scripts/bench-search.js`，12000 篇 itemfull+itemfullx 各半）：1.5s 预算仅扫 ~2450 篇（约 20%）即 truncated，全扫推算 ~7s+；**决策：维持预算截断降级（UI 已示「部分扫描」），不开发倒排索引**。实机 IPC 开销另测
 - [ ] 全文提取实机（Node16 宿主内 linkedom/readability require 与运行、真实摘要型源抓取成功率、`FETCH_EMPTY_BODY`/`EXTRACT_TOO_SHORT` 实际占比）

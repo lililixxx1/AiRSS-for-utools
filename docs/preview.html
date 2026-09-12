@@ -1003,7 +1003,7 @@ html[data-theme="dark"] .card:not(.is-unread) .card-title{color:#C6BFB3}
         <section class="reader" id="reader" role="region" aria-label="阅读面板" hidden>
         <header class="reader-top">
           <button class="btn btn--ghost btn--sm" id="readerBack" type="button">
-            <svg class="ic" aria-hidden="true"><use href="#i-back"/></svg>返回<span class="kbd">Esc</span>
+            <svg class="ic" aria-hidden="true"><use href="#i-back"/></svg>返回<span class="kbd">⌫</span>
           </button>
           <div class="reader-top-actions">
             <button class="btn btn--ghost btn--sm" id="serifBtn" type="button" aria-pressed="false">衬线</button>
@@ -1062,8 +1062,8 @@ html[data-theme="dark"] .card:not(.is-unread) .card-title{color:#C6BFB3}
     <span class="k"><span class="kbd">s</span> 收藏</span>
     <span class="k"><span class="kbd">Shift A</span> 全部已读</span>
     <span class="k"><span class="kbd">Ctrl F</span> 搜索</span>
-    <span class="k"><span class="kbd">Esc</span> 逐级返回</span>
-    <span style="margin-left:auto;color:var(--doc-sub)">预览稿仅演示 Esc / 点击流，完整快捷键见 design-system.md §8</span>
+    <span class="k"><span class="kbd">⌫</span> 逐级返回</span>
+    <span style="margin-left:auto;color:var(--doc-sub)">预览稿仅演示 ⌫ / 点击流，完整快捷键见 design-system.md §8</span>
   </div>
 </section>
 
@@ -1593,9 +1593,11 @@ html[data-theme="dark"] .card:not(.is-unread) .card-title{color:#C6BFB3}
     }
   });
 
-  /* ---------- Esc 逐级返回 ---------- */
+  /* ---------- ⌫ 逐级返回（Esc 全线换 ⌫，2026-09-12；预览稿演示同款） ---------- */
   document.addEventListener('keydown', function (e) {
-    if (e.key !== 'Escape') return;
+    if (e.key !== 'Backspace') return;
+    const tg = e.target;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(tg.tagName || '') || tg.isContentEditable) return; // 输入态 ⌫ 是编辑键
     if (!sortMenu.hidden) { closeSort(); return; }
     if (!reader.hidden) { closeReader(); }
   });

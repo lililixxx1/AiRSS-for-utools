@@ -130,14 +130,18 @@ function wireUtools() {
   );
 }
 
-/** 逐级返回阶梯（⌫/Esc 共用）：弹层 → 退出输入态 → 关阅读 → 退设置 → 清搜索；返回是否消费 */
-function backLadder(target: HTMLElement): boolean {
+/** 逐级返回阶梯（⌫；2026-09-12 起 Esc 分支整体移除，含分离窗）：弹层 → sbDrawer → 文内搜索 → 关阅读 → 退设置 → 清搜索；返回是否消费 */
+function backLadder(): boolean {
   if (ui.modal) {
     ui.modal = null;
     return true;
   }
-  if (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable) {
-    target.blur();
+  if (ui.sbDrawer) {
+    ui.sbDrawer = false; // 窄幅侧栏抽屉：先于关阅读收抽屉
+    return true;
+  }
+  if (ui.readerFind) {
+    ui.readerFind = false; // 阅读文内搜索栏：先于关阅读（PLAN-READER-FIND 审核B6）
     return true;
   }
   if (ui.view === "reader" && !ui.detached) {
@@ -160,21 +164,25 @@ function onKeydown(e: KeyboardEvent) {
   const target = e.target as HTMLElement;
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable;
 
-  // Esc：2026-09-05 实机验证——主窗口 Esc 被宿主优先消费（直接隐藏插件，页面拦不住），
-  // 页内逐级返回由 ⌫ Backspace 承担；Esc 分支保留，分离窗内无宿主拦截仍生效。
-  if (e.key === "Escape") {
-    if (backLadder(target)) e.preventDefault();
-    return; // 顶层放行宿主（PLAN §10 兜底）
-  }
   if (e.key === "Backspace" && !typing) {
-    // 输入态下 ⌫ 是编辑键，不参与返回
-    if (backLadder(target)) e.preventDefault();
+    // ⌫ = 页内唯一返回/关闭键：主窗 Esc 被宿主优先消费（直接隐藏插件，页面拦不住，2026-09-05
+    // 实机验证），2026-09-12 用户裁决 Esc 分支整体移除（含分离窗）统一 ⌫。输入态下 ⌫ 是编辑键，不参与返回。
+    if (e.repeat) return; // 长按只走一级，防连跳整条阶梯
+    if (backLadder()) e.preventDefault();
     return;
   }
 
   if (e.key === "f" && (e.ctrlKey || e.metaKey)) {
     e.preventDefault();
-    sidebarRef.value?.focusSearch();
+    // 阅读态开文内搜索（PLAN-WHEEL-FIND：入口=Ctrl+F / AI 轮盘搜索项，轨内搜索钮已回归纯列表搜索）；
+    // 顺关轨内面板防两搜索面并存，focusAt 自增驱动已开态重聚焦+全选（PLAN-WHEEL-FIND §2.5）
+    if (ui.view === "reader" && ui.readerItemId) {
+      ui.railSearch = false;
+      ui.readerFind = true;
+      ui.readerFindFocus++;
+    } else {
+      sidebarRef.value?.focusSearch();
+    }
     return;
   }
   if (typing || ui.modal) return;
@@ -369,6 +377,10 @@ onBeforeUnmount(() => {
    2026-09-08 实机：宿主 Chromium 对 grid 子项百分比高度的解析会回落 auto（内容高），
    正文滚动容器被撑成整文高度、永不溢出 → 滚轮无效；stretch 对内容免疫，勿改回百分比 */
 .main-col { position: relative; min-width: 0; overflow: hidden; }
+/* 分离窗三栏显式钉列：窄幅抽屉打开时 .sidebar 变 fixed 脱离网格流，若靠自动排布
+   main-col/reader-col 会被重排进第 1 轨（64px），钉住后 64px 轨留空、被抽屉覆盖 */
+.app.detached .main-col { grid-column: 2; }
+.app.detached .reader-col { grid-column: 3; }
 .reader-col { position: relative; min-width: 440px; background: var(--bg-panel); display: flex; flex-direction: column; }
 
 .reader-placeholder {
