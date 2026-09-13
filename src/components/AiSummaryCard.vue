@@ -18,6 +18,19 @@ const props = defineProps<{
 const emit = defineEmits<{ regenerate: []; tag: [t: string] }>();
 
 const shownTags = computed(() => props.tags.slice(0, 2));
+
+/** 流式期间裁掉 enrich 头部元信息协议（【titleZh】…【titleNorm】…【tags】…，F5）：
+ *  镜像 preload parseEnrichOutput 的摘要起点——各段值不含「【」与换行、tags 值以换行收尾，
+ *  协议头未走完（尚无换行）时不显示中间态文本；无协议头（降级纯摘要流/缓存先行）原样显示。
+ *  仅作用于 loading 态显示层，不改管线协议；done 态文本已是剥净产物 */
+const ENRICH_PROTO_RE = /【titleZh】\s*[^【\n]*\s*【titleNorm】\s*[^【\n]*\s*【tags】\s*[^【\n]*/;
+const displayText = computed(() => {
+  const t = props.text;
+  if (props.state !== "loading" || !t || !t.includes("【titleZh】")) return t;
+  const m = ENRICH_PROTO_RE.exec(t);
+  if (!m) return "";
+  return t.slice(m.index + m[0].length).replace(/^\s*[\r\n]+/, "");
+});
 </script>
 
 <template>
@@ -33,7 +46,7 @@ const shownTags = computed(() => props.tags.slice(0, 2));
     </header>
 
     <p class="ai-text" :class="{ streaming: state === 'loading' }">
-      <template v-if="text">{{ text }}</template>
+      <template v-if="displayText">{{ displayText }}</template>
       <template v-else-if="state === 'loading'">正在生成…</template>
       <template v-else-if="state === 'error'">这篇的摘要没能生成。</template>
     </p>

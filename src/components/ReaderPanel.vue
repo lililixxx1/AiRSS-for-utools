@@ -701,6 +701,13 @@ function onContentClick(e: MouseEvent) {
   }
 }
 
+/** 正文图片加载失败（热链被拒/图床失效）：整块隐藏不留破图占位（与卡片封面门控同口径）。
+ *  error 不冒泡但走捕获——挂在容器 @error.capture 上，v-html 重设 innerHTML 后依旧生效 */
+function onContentImgError(e: Event) {
+  const t = e.target as HTMLElement;
+  if (t && t.tagName === "IMG") t.style.display = "none";
+}
+
 function openOriginal() {
   if (item.value?.link) window.airss.sys.openExternal(item.value.link);
 }
@@ -769,8 +776,9 @@ const fontLabels = ["14", "16", "18", "22"];
           @regenerate="runEnrich(true)"
           @tag="onTagFilter"
         />
-        <!-- v-html 唯一信任源：preload article.sanitizeContent 产物（PLAN §7） -->
-        <div class="ra-content" ref="contentEl" @click="onContentClick" v-html="html"></div>
+        <!-- v-html 唯一信任源：preload article.sanitizeContent 产物（PLAN §7）；
+             @error.capture 隐藏加载失败的正文图片（F4） -->
+        <div class="ra-content" ref="contentEl" @click="onContentClick" @error.capture="onContentImgError" v-html="html"></div>
       </article>
     </div>
 
