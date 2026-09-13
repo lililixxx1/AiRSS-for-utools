@@ -2,6 +2,7 @@
   "main": "dist/index.html",
   "preload": "preload/index.js",
   "logo": "logo.png",
+  "version": "1.8.0",
   "pluginSetting": {
     "single": true,
     "height": 620

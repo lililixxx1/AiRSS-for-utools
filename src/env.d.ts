@@ -1,5 +1,8 @@
 /// <reference types="vite/client" />
 
+/** 版本号（vite define 从 package.json 注入，关于区展示用） */
+declare const __APP_VERSION__: string;
+
 declare module "*.vue" {
   import type { DefineComponent } from "vue";
   const component: DefineComponent<{}, {}, any>;

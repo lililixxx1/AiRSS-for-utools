@@ -201,6 +201,7 @@ preload 不用 esbuild/打包（R1）；图标内联 SVG 不引库。
 2. logo：scripts/make-logo.py（PIL：256×256 橙 #F97316 圆角方块、白 "Ai"、右下白色 rss 波纹+圆点）。
 3. 本地验收：uTools 开发者模式载入 `C:\...\airss\plugin.json`（含 preload/node_modules，原样目录）。
 4. 打包上架不在一期（preload 合规性已按 R1 预留）。
+5. 上架打包（2026-09-12 落地）：`node scripts/make-release.js` 一键组装 `release/`（plugin.json + logo.png + dist + preload 源码与 node_modules；package-lock.json 不随包）。uTools 平台校验：logo ≤256×256（源头保证，勿放大重存）、打包目录不得含 `.map`/`.js.gz` 等调试文件——脚本在 node_modules 内**只留运行时文件**（.js/.cjs/.json 全保留，注意 nanoid 的 CJS 入口就是 index.cjs），剔除 .map/.gz、README/LICENSE、test/docs、.github/.idea、ESM 变体与 .bin/ 等并自检残留；定稿版 704 文件/4.1MB，preload 全图从 release 内加载验证通过。release/ 目录被占用（EPERM）时脚本自动降级为清空内容保留目录壳；子项仍删不动才提示关闭占用窗口。
 
 ## 12. 一期验收清单
 - [ ] 添加订阅全管线：URL 直填/HTML 自动发现/常见路径探测/失败引导；复制 URL 一键订阅

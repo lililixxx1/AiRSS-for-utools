@@ -12,6 +12,8 @@ const settings = useSettingsStore();
 const data = useDataStore();
 const ui = useUiStore();
 const theme = useThemeStore();
+/** 版本号（vite define 从 package.json 注入；模板内直接用全局常量 vue-tsc 不认，经 script 暴露） */
+const APP_VERSION = __APP_VERSION__;
 
 function setTheme(v: "auto" | "light" | "dark") {
   settings.set("theme", v);
@@ -391,7 +393,7 @@ function openRepo() {
       <!-- 关于 -->
       <div class="st-group">
         <h3>关于</h3>
-        <div class="st-row"><span class="st-label">版本</span><span class="st-value num">1.1.0（二期 AI 增强）</span></div>
+        <div class="st-row"><span class="st-label">版本</span><span class="st-value num">{{ APP_VERSION }}</span></div>
         <div class="st-row">
           <span class="st-label">开源地址</span>
           <button class="repo-link" type="button" @click="openRepo">github.com/lililixxx1/AiRSS-for-utools</button>

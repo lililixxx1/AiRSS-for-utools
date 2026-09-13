@@ -17,6 +17,7 @@ node scripts/check-preload-mapping.js  # preload/index.js 服务映射静态核�
 node scripts/check-theme-contrast.js   # 多主题配色守门（warm 快照+令牌完整+对比度矩阵；改 tokens.css 配色必跑）
 node scripts/bench-search.js [N]    # P3 内容搜索万级测量（itemfull+itemfullx 灌水，默认 12000）
 python scripts/make-logo.py         # 重新生成 logo.png
+node scripts/make-release.js        # 组装发布目录 release/（构建+拷贝+剔除 node_modules 调试文件+自检+版本盖章；上架打包专用。版本唯一真源=package.json：改版本只动它，发布包 plugin.json 由脚本盖章，源 plugin.json 的 version 仅供开发模式参考）
 ```
 
 浏览器 dev 直达状态：`?view=reader` / `?view=settings` / `?view=addfeed`。

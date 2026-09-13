@@ -1,7 +1,7 @@
 {
   "name": "airss",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.8.0",
   "description": "AiRSS - uTools 智能订阅阅读器（一期核心阅读器）",
   "license": "GPL-3.0-only",
   "scripts": {
