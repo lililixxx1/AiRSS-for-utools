@@ -54,6 +54,13 @@ watch(items, (list) => {
   if (ui.cursor >= list.length) ui.cursor = Math.max(0, list.length - 1);
 });
 
+/** aria-activedescendant 指向当前项（design-system §8.2）：虚拟列表窗外短暂缺节点无害，
+ *  游标 watch 会 scrollToIndex 让它随即进入窗口 */
+const cursorDomId = computed(() => {
+  const it = items.value[ui.cursor];
+  return it ? "af-item-" + it._id : undefined;
+});
+
 const sortOpen = ref(false);
 const SORTS: { key: "newest" | "oldest" | "unread"; label: string }[] = [
   { key: "newest", label: "最新发布" },
@@ -66,13 +73,14 @@ const sortLabel = computed(() => SORTS.find((s) => s.key === settings.orderBy)?.
 const compact = computed(() => ui.detached);
 
 /** 空态判定（muted-empty 先于 all-read：静音清空视图时不得谎称"全部读完"） */
-const emptyKind = computed<null | "first-run" | "no-result" | "category-empty" | "all-read" | "muted-empty" | null>(() => {
+const emptyKind = computed<null | "first-run" | "no-result" | "all-empty" | "category-empty" | "all-read" | "muted-empty" | null>(() => {
   if (!data.loaded) return null;
   if (items.value.length) return null;
   if (!data.feeds.length) return "first-run";
   if (data.search.trim()) return "no-result";
   if (data.mutedInView > 0) return "muted-empty";
   if (data.filter.kind === "unread") return "all-read";
+  if (data.filter.kind === "all") return "all-empty";
   if (data.filter.kind === "category") return "category-empty";
   if (data.filter.kind === "starred") return "category-empty";
   return "category-empty";
@@ -86,7 +94,7 @@ const emptyKind = computed<null | "first-run" | "no-result" | "category-empty" |
 
     <header class="toolbar" :class="{ compact }">
       <div class="tb-left">
-        <h1 class="tb-title ellipsis">{{ viewTitle }}</h1>
+        <h1 class="tb-title ellipsis" id="af-title">{{ viewTitle }}</h1>
         <button class="icon-btn lg" :class="{ spin: data.refreshing }" aria-label="刷新" :disabled="data.refreshing" @click="data.refreshDue(true)">
           <I.refresh />
         </button>
@@ -171,7 +179,17 @@ const emptyKind = computed<null | "first-run" | "no-result" | "category-empty" |
         :category="data.filter.kind === 'category' ? data.filter.value : data.filter.kind === 'starred' ? '收藏' : viewTitle"
       />
 
-      <div class="vl-inner" v-else :style="{ height: vl.total.value + 'px' }">
+      <!-- role=feed + roving tabindex（design-system §8.2/8.3）：容器持焦，aria-activedescendant 指向
+           当前项；仅当前项 tabindex=0 其余 -1（Tab 路径 = 容器 → 当前项）；posinset/setsize 按数据集计（虚拟滚动） -->
+      <div
+        class="vl-inner"
+        v-else
+        :style="{ height: vl.total.value + 'px' }"
+        role="feed"
+        aria-labelledby="af-title"
+        tabindex="0"
+        :aria-activedescendant="cursorDomId"
+      >
         <div
           v-for="w in window_"
           :key="w.item._id"
@@ -179,8 +197,24 @@ const emptyKind = computed<null | "first-run" | "no-result" | "category-empty" |
           :style="{ transform: `translateY(${vl.offsetOf(w.index)}px)` }"
           :ref="(el: any) => vl.measureRow(el, w.item._id)"
         >
-          <ArticleCard v-if="isCard" :item="w.item" :feed="data.feedMap.get(w.item.feedKey)" />
-          <ArticleRow v-else :item="w.item" :feed="data.feedMap.get(w.item.feedKey)" :is-cursor="w.index === ui.cursor" />
+          <ArticleCard
+            v-if="isCard"
+            :item="w.item"
+            :feed="data.feedMap.get(w.item.feedKey)"
+            :is-cursor="w.index === ui.cursor"
+            :id="'af-item-' + w.item._id"
+            :aria-posinset="w.index + 1"
+            :aria-setsize="items.length"
+          />
+          <ArticleRow
+            v-else
+            :item="w.item"
+            :feed="data.feedMap.get(w.item.feedKey)"
+            :is-cursor="w.index === ui.cursor"
+            :id="'af-item-' + w.item._id"
+            :aria-posinset="w.index + 1"
+            :aria-setsize="items.length"
+          />
         </div>
       </div>
     </div>
@@ -255,4 +289,6 @@ html[data-theme="dark"] .dd-menu { background: var(--bg-elevated); }
 
 .vl-inner { position: relative; }
 .vl-row { position: absolute; left: 0; right: 0; will-change: transform; }
+/* 容器持焦不画轮廓：当前位置由游标行底色（aria-activedescendant 目标）承担（§8.2 惯例） */
+.vl-inner:focus { outline: none; }
 </style>

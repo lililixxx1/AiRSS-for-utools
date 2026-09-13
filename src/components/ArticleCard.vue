@@ -8,7 +8,7 @@ import { I } from "./icons";
 import { timeAgo } from "../lib/format";
 import { highlightSegments } from "../lib/highlight";
 
-const props = defineProps<{ item: Item; feed?: Feed }>();
+const props = defineProps<{ item: Item; feed?: Feed; isCursor?: boolean }>();
 const data = useDataStore();
 const settings = useSettingsStore();
 const ui = useUiStore();
@@ -54,7 +54,14 @@ function share() {
 </script>
 
 <template>
-  <article class="card" :class="{ unread: !item.read }" role="article" tabindex="0" @click="open" @keydown.enter="open">
+  <article
+    class="card"
+    :class="{ unread: !item.read, cursor: isCursor }"
+    role="article"
+    :tabindex="isCursor ? 0 : -1"
+    @click="open"
+    @keydown.enter="open"
+  >
     <img v-if="item.cover && bannerOk" class="banner" :src="item.cover" loading="lazy" alt="" referrerpolicy="no-referrer" @load="onBannerLoad" @error="bannerOk = false" />
     <div class="card-body">
       <div class="tag-row">
@@ -92,6 +99,8 @@ function share() {
   transition: background var(--t-fast) var(--ease-out);
 }
 .card:hover { background: var(--bg-card-hover); }
+/* 键盘游标（j/k）：与列表行同口径 --bg-selected（design-system §8.2，2026-09-13 F1 补齐） */
+.card.cursor { background: var(--bg-selected); }
 .card:active { background: var(--bg-active); }
 .card:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 

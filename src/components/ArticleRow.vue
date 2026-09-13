@@ -39,7 +39,7 @@ function open() {
     class="row"
     :class="{ unread: !item.read, cursor: isCursor }"
     role="article"
-    tabindex="0"
+    :tabindex="isCursor ? 0 : -1"
     @click="open"
     @keydown.enter="open"
   >

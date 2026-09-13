@@ -3,7 +3,7 @@ import { useDataStore } from "../stores/data";
 import { useUiStore } from "../stores/ui";
 import { I } from "./icons";
 
-const props = defineProps<{ kind: "first-run" | "no-result" | "category-empty" | "all-read" | "muted-empty"; query?: string; category?: string }>();
+const props = defineProps<{ kind: "first-run" | "no-result" | "all-empty" | "category-empty" | "all-read" | "muted-empty"; query?: string; category?: string }>();
 const data = useDataStore();
 const ui = useUiStore();
 
@@ -46,6 +46,14 @@ async function addRecommended(r: { url: string }) {
       <h3 class="empty-title">没有匹配「{{ query }}」的文章</h3>
       <p class="empty-sub">换个关键词，或清空搜索查看全部</p>
       <button class="btn btn-ghost" @click="data.setSearch('')">清空搜索</button>
+    </template>
+
+    <!-- 所有文章 0 篇（有源无文）：已是全部视图，不给「切换到全部」死键，引导刷新 -->
+    <template v-else-if="kind === 'all-empty'">
+      <div class="hero-circle small"><I.rss /></div>
+      <h3 class="empty-title">还没有文章</h3>
+      <p class="empty-sub">订阅源暂时没有同步到文章，试试刷新，或检查订阅源是否正常</p>
+      <button class="btn btn-ghost" @click="data.refreshDue(true)"><I.refresh />刷新</button>
     </template>
 
     <!-- 视图无文章（分类/标签/收藏兜底；tag 视图同走此分支，文案保持中性不称"分类"） -->

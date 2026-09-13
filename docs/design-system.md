@@ -359,7 +359,7 @@
   - meta 行（margin-top 10）：源名 12px/600 `--text-2` · 时间 12px `--text-3` · `clock 14px + 9 分钟` `--text-3`；右缘书签 + 分享图标钮（28×24 线性 `--text-3`，hover `--text-1` + 底 `--bg-hover`；书签激活 = 实心 `--accent-deep`）。
 - hover：底 `--bg-card-hover`（banner 不变色），120ms；卡片无 transform（克制）。
 - 未读表达（**无圆点**，忠实参考图）：标题字重 + 摘要明暗双通道 + 侧栏/工具栏数字。
-- 键盘当前位：卡片外框 2px `--focus-ring`（同 focus-visible 样式，由 roving tabindex 驱动）。
+- 键盘当前位：底色 `--bg-selected`（与列表行 `.row.cursor` 同口径，2026-09-13 F1 补齐）；roving tabindex 下 Tab 落点 = 列表容器 → 当前卡，卡片自身 focus-visible 仍保留 2px `--focus-ring` 外框。
 
 ### C4 列表行：见 §4.2。
 
@@ -531,7 +531,7 @@
 
 | 键 | 行为 | 细节 |
 |---|---|---|
-| `j` / `k` | 下/上一篇 | roving tabindex；列表滚动跟随（scrollIntoView block:nearest）；循环 |
+| `j` / `k` | 下/上一篇 | roving tabindex；列表滚动跟随（scrollIntoView block:nearest）；到边界钳制不循环（2026-09-13 修正：原文「循环」与实现不符） |
 | `Enter` | 打开阅读面板 | 小窗=覆盖层，分离窗=第三栏刷新 |
 | `m` | 切换当前篇已读 | 乐观翻转 + 180ms 淡出（§9） |
 | `s` | 切换星标 | 星标图标 160ms 缩放反馈 |
@@ -543,7 +543,7 @@
 
 ### 8.2 焦点管理
 
-- 文章列表 roving tabindex：容器 `tabindex=0`，仅当前项 `tabindex=0` 其余 `-1`；`aria-activedescendant` 指向当前项。
+- 文章列表 roving tabindex：容器 `tabindex=0`，仅当前项 `tabindex=0` 其余 `-1`；`aria-activedescendant` 指向当前项（`af-item-{id}`，虚拟滚动按数据集计 posinset/setsize）。容器持焦不画轮廓——当前位置由游标项底色 `--bg-selected` 承担（卡片/行同口径，2026-09-13 F1 落地）。
 - 弹层打开：焦点移入首个控件；关闭：焦点还原触发元素。`role="dialog" aria-modal="true" aria-labelledby`。
 - 下拉：`aria-expanded` + `role="listbox"/option` + `aria-selected`；方向键导航，⌫ 关闭不移动焦点。**禁用原生 `<select>`/`<datalist>`**——其弹层是 OS 原生弹窗，uTools 无边框窗内定位错位（2026-09 实机），一律用 C17 组件。
 - 开关 `role="switch" aria-checked`；分段控件 `role="radiogroup"` + `radio`；视图切换 `role="group"` + `aria-pressed`。
