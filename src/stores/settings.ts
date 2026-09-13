@@ -24,6 +24,9 @@ export const useSettingsStore = defineStore("settings", {
   actions: {
     load() {
       this.$patch(loadPersisted());
+      // 存量坏值归位（F6）：旧版本 set() 无钳制时可能持久化过越界/非数档位
+      const fl = Math.round(Number(this.fontLevel));
+      this.fontLevel = (Number.isFinite(fl) ? Math.min(3, Math.max(0, fl)) : 1) as Settings["fontLevel"];
       if (utools.dbStorage.getItem(SCHEMA_KEY) !== SCHEMA_VERSION) {
         // v2→v3：新增字段全部可选，旧文档不改写、缺失按 undefined 读取（PLAN §4 迁移纪律）
         utools.dbStorage.setItem(SCHEMA_KEY, SCHEMA_VERSION);
@@ -31,6 +34,12 @@ export const useSettingsStore = defineStore("settings", {
     },
     /** 单项修改并持久化（按 DEFAULT_SETTINGS 键集序列化，防杂物入库） */
     set<K extends keyof Settings>(key: K, value: Settings[K]) {
+      // fontLevel 边界钳制（F6 防御）：真实点击路径已被按钮 disabled 拦住，这里兜旧值/未来入口越界
+      // （取整防直写小数让档位标签/字号档双双落空串兜底；NaN 兜默认档，防持久化成坏值复发）
+      if (key === "fontLevel") {
+        const n = Math.round(Number(value));
+        value = (Number.isFinite(n) ? Math.min(3, Math.max(0, n)) : 1) as Settings["fontLevel"] as Settings[K];
+      }
       (this as any)[key] = value;
       const out: Record<string, unknown> = {};
       for (const k of Object.keys(DEFAULT_SETTINGS)) {
