@@ -10,9 +10,9 @@ cd preload && npm install           # preload 依赖（独立的第二个 packag
 cd .. && npm run dev                # 纯浏览器开发（mock 层兜底，无需 uTools）
 npm run build                       # vite 构建 → dist/
 npm run typecheck                   # vue-tsc --noEmit（仅覆盖 src/，preload 是纯 JS）
-node scripts/smoke-preload.js       # preload 冒烟（42 项：XSS/GBK/解析/OPML/提取消毒/摘要启发式/真实抓取）
-node scripts/test-db-mock.js        # 数据层+端到端管线（66 项：判重/写序/保留/级联/双前缀搜索/ensureFull 状态机）
-node scripts/test-ai.js             # AI 管线（85 项：enrich/缓存/额度/abort/轻量批/翻译/T-09/翻译×提取并发）
+node scripts/smoke-preload.js       # preload 冒烟（83 项：XSS/GBK/解析/OPML/提取消毒/摘要启发式/站内适配/真实抓取）
+node scripts/test-db-mock.js        # 数据层+端到端管线（74 项：判重/写序/保留/级联/双前缀搜索/ensureFull 状态机/失败记忆/适配落库）
+node scripts/test-ai.js             # AI 管线（116 项：enrich/缓存/额度/abort/轻量批/翻译/T-09/翻译×提取并发）
 node scripts/check-preload-mapping.js  # preload/index.js 服务映射静态核对（防拼错实机炸）
 node scripts/check-theme-contrast.js   # 多主题配色守门（warm 快照+令牌完整+对比度矩阵；改 tokens.css 配色必跑）
 node scripts/bench-search.js [N]    # P3 内容搜索万级测量（itemfull+itemfullx 灌水，默认 12000）
@@ -38,7 +38,7 @@ node scripts/make-release.js        # 组装发布目录 release/（构建+拷�
 - **schemaVersion = 3**（二期已落地，v1.2 增补字段同属 v3 桶）：item 增加 `ai: { summary, tags[], titleZh, titleNorm, aiSource: 'batch'|'enrich' }` 与 `aiTrans: { paras:[{idx,head,text}], at, model }`（段落翻译纯文本，可选，旧文档缺失按 undefined 读）；`aiStatus: 'none'|'done'|'error'`（pending 仅存在于调用方内存）。contentHash 变化时 ingest 会清空 ai 与 aiTrans 并复位 aiStatus/titleDisplay（T-09）。
 - **titleDisplay 语义**：AI 改写标题的展示位（titleNorm > titleZh > 原 title；与原标题相同则等于 title）。titleNorm 口径 v1.2 起为"AI优化标题"（冗长/含糊/标题党→清晰客观中文，≤24 字）。
 - **AI 缓存文档**：`ai:enrich:v2:{contentHashTrunc}:{titleHash}`（复合键，正文截 2000 字哈希；v2 = AI优化标题口径）、`ai:cls:v2:{titleHash}`、`ai:trans:v2:{sha12(joined)}`（纯内容键，feed 联播同文跨源复用），LRU 上限 5000；额度分池手动 120/日、后台 30/日（BYOK 豁免）存 dbStorage。
-- **渲染层设置新增字段**（如 `aiAutoCount` 0/1/3/5，默认 0=关闭自动、逐篇手动 AI 按钮，2026-09 由 1 改 0；v1.3 的 `muteWords/highlightWords: string[]` 默认 []）：只动 `src/types/index.ts` 的 Settings/DEFAULT_SETTINGS（settings.ts 按 DEFAULT 键集序列化，旧数据自动 merge 默认值）。首用引导的推荐订阅源胶囊在 EmptyState.vue 的 `RECOMMENDED` 数组（首项「橘鸦AI早报」2026-09-12 加入；点击只开 addFeed 弹窗预填 URL 走发现确认，不自动入库）。
+- **渲染层设置新增字段**（如 `aiAutoCount` 0/1/3/5，默认 0=关闭自动、逐篇手动 AI 按钮，2026-09 由 1 改 0；v1.3 的 `muteWords/highlightWords: string[]` 默认 []）：只动 `src/types/index.ts` 的 Settings/DEFAULT_SETTINGS（settings.ts 按 DEFAULT 键集序列化，旧数据自动 merge 默认值）。首用引导的推荐订阅源胶囊在 EmptyState.vue 的 `RECOMMENDED` 数组（6 项：橘鸦AI早报 / HelloGitHub 月刊 / Indie Radar / AIGC NEWS / 阮一峰的网络日志 / 少数派；2026-10-30 加入 HelloGitHub·Indie Radar·AIGC NEWS 三源，正文还原靠站内适配层，见「RSS 内容适配要点」；点击只开 addFeed 弹窗预填 URL 走发现确认，不自动入库）。
 - **v1.3 增量（全部可选字段，schemaVersion 仍为 3）**：`itemfullx:{item._id}` = 全文提取版（Readability 产物消毒 HTML，独立前缀**不写回 itemfull**——与 ingest 写序/contentHash 判重解耦；ingest 内容变化、retentionClean、deleteFeedCascade 均连带删它，T-09 同族）；`Feed.fullText?: boolean`（每源全文开关，默认关；发现管线 discoverFeed 候选带 `summaryOnly`——feed.js `looksSummaryOnly` 抽样前 5 条正文中位纯文本长度 <600 字〔与 extract.js rich 守卫同线〕判摘要型，AddFeedModal 据此智能预开「抓取全文」并显示判定文案，2026-09-12 落地，取代推荐位手工 fullText 预设）；`Feed.order?: number`（拖拽排序：首次拖拽 initOrderOnce 批量赋值，此后新增源无 order 排末尾）；`ListFilter` kind 含 `'tag'`（定义在 data.ts）。searchContent 扫 itemfull+itemfullx 双前缀（同 id 去重）。
 - **v1.4 增量（AI 目录 + AI 工具面板，PLAN-AI-TOC；可选字段，schemaVersion 仍 3）**：`item.aiToc: { sections:[{title,idx,head,level?}], at, model }`（AI 目录纯数据；head 由 preload `tocAnchorSections` 从**当前输入段落**按 idx 查表补全，AI 与缓存都不回写 head；level=目录层级 1-3，PLAN-TOC-LEVEL，旧数据缺失按 1 平铺读）；缓存 `ai:toc:v2:{sha12(joined)}` **纯内容键**（v2=两级层级协议，载荷 {title,idx,level} 不含 head）——extract 全文替换不更新 contentHash，挂它会命中旧目录写入 head 全失配死数据（送审确认）；失效联动 T-09 族三处（db.js ingest / extract.js 落库2 / ReaderPanel maybeExtractFull 清内存并 resetToc，Teleport 面板不随 reader 卸载必须强关）；前端结构目录（h2-h4 ≥2 个）不落库打开现算，**层级=实际出现的标签秩排序后序号映射 1..n（纯 h3/h4 归一为 1/2，防全缩进；PLAN-TOC-LEVEL）**；**v1.5 AI 入口=阅读区右下悬浮轮盘（PLAN-AI-WHEEL，设计系统 C19：hover 预览移开即收、点击展开锁定再点才收，摘要/翻译/目录/文内搜索四项左上弧排、点击直达动作；顶栏「AI」按钮已撤）**，AiToolsPanel 三区（目录/摘要/翻译；翻译按钮已从顶栏撤入面板，AiSummaryCard 仍在正文原位）由轮盘目录项打开、底部触发 place() 向上翻转；轮盘热区=容器 pointer-events:none + document mousemove 联合矩形保活，键盘焦点转移必须 nextTick（rAF 在节流/后台窗格被冻结会滞留球上，2026-09 回归实测）；**v1.7 轮盘加第四项「文内搜索」（PLAN-WHEEL-FIND：R=110、30° 等距四分之一弧 -90/-120/-150/-180、热区随之 120→140=R+项半径22+缓冲8；非 AI 功能不受 aiEnabled 置灰恒可点，emit "find" → ReaderPanel onWheelFind 开 readerFind 并顺关 railSearch）**。
 
@@ -54,6 +54,17 @@ node scripts/make-release.js        # 组装发布目录 release/（构建+拷�
 - prompt 正文用 `<<< >>>` 栅栏包裹（T-58，正文内指令样文本不构成指令）。
 - **AI 目录（v1.4；PLAN-TOC-LEVEL 层级化）**：`generateToc` 手动池，输入全量段落（每段截 200 字、总量 10000 字，超出面板标「仅覆盖前 X%」= 末章 idx+1÷全文段数）；`[[idx|level]]标题` 两级行协议解析（level 1=章 2=子章，缺省 1、越界 clamp 1-3 不丢行、标题剥 `#` 前缀；同 idx 去重保首 + 升序）；**输入行 h1-h6 段带 markdown `#` 前缀（`[[idx]]## 标题`，paras.tag 透传——generateToc 限幅循环重建对象必须随传 tag，漏传则标记静默失效）**；渲染层门槛常量 `TOC_MIN_HEADINGS=2`/`TOC_MIN_CHARS=1500` 在 ReaderPanel——**collectParasAll 里 h1-h6 不受段落 ≥10 字文本门槛限制**（2026-09 回归实测：短标题被滤光导致前端目录整体为空）。**摘要连带目录（2026-09-10，PLAN-AI-TOC §13）**：runEnrich 成功分支对「无结构长文且无 aiToc」自动 runToc——必须 await 且先于 prefetchNext（runToc 入口与预取每步都按单飞纪律 abort，并行互杀），await 后补 seq 守卫；结构文/短文/已有目录零增量；列表卡片 summarizeItem 与「打开已有摘要」分支（含被预取补实后打开）不连带，仍走面板/轮盘手动。
 - **v1.3 全文提取联动（extract.js，改它前必读 PLAN-V1.3 §1.1）**：enrich 正文获取走 `getItemFullBest`（优先 itemfullx 提取版）；Readability 输出按不可信输入处理、一律过 sanitizeContent，相对 URL 先在 DOM 层绝对化（否则 scheme 白名单剥光）；**翻译/提取并发弃写守卫**——translateItem 写回前查 `itemfullx.at > t0` 则弃（CONTENT_CHANGED，防复活已被提取层清理的旧译文，渲染层安静回「翻译」态）；空 body（bot 挑战 202+0 字节）/截断 TOO_LARGE/短于 600 字各有独立错误码，渲染层统一安静降级无 toast；日志只记 {itemId,status,ms,error}（URL/正文不入，T-11）。
+
+## RSS 内容适配要点（改 feed.js / extract.js / adapters.js 前必读，2026-10 PLAN-RSS-ADAPT）
+
+- **为什么有站内适配层**：RSS 生态里有一类源不是语义化 HTML，通用启发式（Readability）在它们身上必然失真——HelloGitHub 月刊的项目名/仓库链接写在 `<a><div>项目名</div></a>` 里，Readability 按「链接密度」判为页面杂质整块剔除，全文只剩 Star 数与描述；Indie Radar 条目页是「摘录→AI 导读→推荐理由→标签→来源」栏目区块，Readability 会把元信息行与标签云掺进正文，且正文短于 600 字落库门槛 → 白抓一次仍显示 feed 两行。`preload/services/adapters.js` 是**唯一**的站点特化入口。
+- **两类注册表**：`FEED_ADAPTERS`（按 **feed URL** 匹配，`parseFeedXml` 内清正文固定噪音，如 AIGC NEWS 每篇尾部的「📮 全文 RSS…订阅」引流文案）+ `ARTICLE_ADAPTERS`（按**文章 URL** 匹配，extract.js 在 Readability **之前**直接产结构化正文：hellogithub 读 `#__NEXT_DATA__` 的 `volume.data`，radar 按 article 子节点顺序重组）。新增站点适配只在这两个数组里加一条 + 补 smoke fixture。
+- **适配纪律**：适配器只读 DOM、只产白名单标签（p/h2/h3/a/strong…）、属性一律 `esc` + `httpUrl` 校验（非 http(s) 丢弃，hellogithub 仓库地址回落 `https://github.com/<full_name>`）；**任何异常一律返回 null 回落 Readability**，绝不能让适配层炸掉提取链路；产物仍过 `sanitizeContent`（协议白名单/on* 剥除/100KB 截断）。
+- **适配产物门槛 `ADAPTER_MIN_CHARS=80`**（≠ 通用 `FULLTEXT_MIN_CHARS=600`）：结构化栏目天然短篇，按 600 拦等于把这些源唯一有效的内容丢回摘要；短于此按「页面改版/空壳」回落通用链路。落库 `itemfullx` 时 `src="adapter:<id>"`（通用链路仍是 `readability`）。
+- **封面补写**：全文落库时补 `item.cover`，**只补空不覆盖**已有封面，来源二分——适配器给站点自有封面（hellogithub 首项配图、radar 条目页 og:image）；通用 Readability 链路取提取正文首张合格图（`extractCover`，卡片 banner 另有自然尺寸二次门控，不会把小图拉伸）。正文不内联项目配图（月刊 35 张动图会把阅读页拖死）。
+- **纯文本正文段落化**（`article.paragraphizePlainText`，`parseFeedXml` 内统一过）：description 无标签、只用 `\n` 分段的源（聚合源常见）原样进 sanitize 会被浏览器折叠成一堵墙。规则：已含标签/无换行 → 不介入（否则 contentHash 全量抖动）；空行硬分段 + 中文「一段一行」逐行成段 + 拉丁文硬折行（上一行 ≥40 字符、无句末标点、下一行小写起头）接回同段。**摘要口径**：默认仍用 rss-parser 的 `contentSnippet`（「description=编辑手写摘要 + content:encoded=全文」的 WordPress 系源靠它保住编辑摘要），**只有本模块真的改过正文**（站点适配命中 / 纯文本被段落化）才改由最终正文派生——否则适配剥掉的尾巴又会被原始 snippet 带进列表摘要。
+- **聚合型源信号 `externalLinks`**（`discoverFeed` → `FeedCandidate` → AddFeedModal）：抽样 5 条 link，≥60% 落在「feed 域 ∪ channel.link 域」之外 → 聚合型（原文在第三方站点，抓全文基本失败），确认步**不预开「抓取全文」**并换文案；`siteUrl` 参与判定，避免 feed 托管第三方（feedburner）时误判。
+- **失败记忆**（extract.js）：`FETCH_*`/`EXTRACT_*`/`EXTRACT_TOO_SHORT` 记入内存 `failureMemo` 10 分钟（`MEMO_TTL_MS`，上限 200 条），同篇反复打开不再发注定失败的请求（Indie Radar 短页、外链聚合站实测每次打开都会白抓）；成功路径走 `itemfullx` 持久缓存，不进 memo。**改这些分支的测试前先 `extract.__test.clearMemo()`**，否则上一个失败原因会短路下一个用例。
 
 ## 设计规则（改 UI 前必读 docs/design-system.md）
 

@@ -47,9 +47,12 @@ function sanitizeContent(html) {
 /** HTML → 纯文本（剥全部标签、实体解码由 sanitize-html 顺路完成） */
 // 装饰符号属正文排版噪音（箭头/杂项/几何图形/象形部首区块、零宽变体选择符），摘要里只添乱
 const NOISE_SYMBOL_RE = /[\u2190-\u21FF\u2300-\u23FF\u25A0-\u25FF\u2B00-\u2BFF\uFE0F\u2060]/g;
+// 块级边界先换成空格：sanitize-html 剥标签是**直接删除**，<p>a</p><p>b</p> 会粘成 "ab"
+// （2026-10 摘要改由 contentHtml 派生后暴露：英文摘要曾变成 "alphabeta"）
+const BLOCK_BREAK_RE = /<\/(?:p|div|section|article|li|ul|ol|h[1-6]|blockquote|pre|tr|td|th|table)\s*>|<br\s*\/?>/gi;
 function htmlToText(html) {
   if (!html) return "";
-  return sanitizeHtml(String(html), { allowedTags: [], allowedAttributes: {} })
+  return sanitizeHtml(String(html).replace(BLOCK_BREAK_RE, " "), { allowedTags: [], allowedAttributes: {} })
     .replace(NOISE_SYMBOL_RE, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -91,10 +94,74 @@ function extractCover(html) {
   return null;
 }
 
+/** 文本里是否已有 HTML 标签（有则说明是富文本源，段落化不介入） */
+const HAS_HTML_TAG_RE = /<\/?[a-z][^<>]*>/i;
+/** 中日韩字符（判断「一段一行」还是「拉丁文硬折行」的锚） */
+const CJK_RE = /[\u3400-\u4dbf\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/;
+/** 句末标点（上一行以它收尾 = 语句完整，下一行另起一段；含 ASCII 句点，缺它英文硬折行会连成一大段） */
+const SENTENCE_END_RE = /[.!?。！？；;…：:]["'”』」)\]]?$/;
+
+/** 纯文本片段转义（段落化时产 HTML 文本节点的唯一出口） */
+function escapeText(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * 纯文本正文段落化（2026-10，AIGC NEWS 一类聚合源实测）。
+ *
+ * 现象：很多源的 description 是**纯文本**，段落只用 \n 分隔、没有任何标签。原样塞进
+ * sanitize 后整篇是一个文本节点，浏览器把换行折叠成空格——阅读器里就是「一堵墙」，
+ * 两三段的中文资讯读起来完全失去结构。这里把纯文本按行重建为 `<p>`。
+ *
+ * 规则（宁保守勿误伤）：
+ *  - 已含标签 → 原样返回（富文本源的 \n 是排版噪声，动了反而破坏）；
+ *  - 无换行 → 原样返回（单段纯文本包 <p> 无视觉差异，且会无谓改变 contentHash 造成全量重入库）；
+ *  - 空行（\n\n）= 硬分段；非空行之间默认也视为分段（中文源普遍「一段一行」）；
+ *  - 例外：拉丁文硬折行接回同一段（上一行 ≥40 字符且无句末标点、下一行以小写/数字/左括号开头）——
+ *    否则英文源会被折成一句一段的碎片。
+ * @param {string} text
+ * @returns {string} 段落化后的 HTML 或原值
+ */
+function paragraphizePlainText(text) {
+  const s = String(text == null ? "" : text);
+  if (!s.trim() || !s.includes("\n") || HAS_HTML_TAG_RE.test(s)) return s;
+  const blocks = s.split(/\n\s*\n+/).map((b) => b.trim()).filter(Boolean);
+  if (!blocks.length) return s;
+  const paras = [];
+  for (const block of blocks) {
+    const lines = block.split("\n").map((l) => l.trim()).filter(Boolean);
+    let buf = "";
+    for (const line of lines) {
+      if (!buf) {
+        buf = line;
+        continue;
+      }
+      const hardWrap =
+        !SENTENCE_END_RE.test(buf) &&
+        buf.length >= 40 &&
+        !CJK_RE.test(buf) &&
+        !CJK_RE.test(line) &&
+        /^[a-z0-9([“"']/.test(line); // 小写/数字/括号/引号起头才是同一句的续行；大写起头多为新句
+      if (hardWrap) {
+        buf = buf + " " + line;
+      } else {
+        paras.push(buf);
+        buf = line;
+      }
+    }
+    if (buf) paras.push(buf);
+  }
+  if (!paras.length) return s;
+  return paras.map((p) => `<p>${escapeText(p)}</p>`).join("");
+}
+
 /** 阅读时长估算（中文 ~400 字/分钟，至少 1 分钟） */
 function readingMinutes(text) {
   const n = (text || "").length;
   return Math.max(1, Math.round(n / 400));
 }
 
-module.exports = { sanitizeContent, htmlToText, makeSummary, extractCover, readingMinutes, SANITIZE_OPTIONS, MAX_CONTENT_BYTES };
+module.exports = { sanitizeContent, htmlToText, makeSummary, extractCover, readingMinutes, paragraphizePlainText, SANITIZE_OPTIONS, MAX_CONTENT_BYTES };

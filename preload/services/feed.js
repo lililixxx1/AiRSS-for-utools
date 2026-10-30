@@ -5,7 +5,8 @@
  * 抓取（PLAN §5.1）：ETag/If-Modified-Since 条件请求；304 直接返回不解析
  */
 const { nodeFetch } = require("./http.js");
-const { sanitizeContent, makeSummary, extractCover, htmlToText } = require("./article.js");
+const { sanitizeContent, makeSummary, extractCover, htmlToText, paragraphizePlainText } = require("./article.js");
+const adapters = require("./adapters.js");
 const crypto = require("crypto");
 const iconv = require("iconv-lite");
 const Parser = require("rss-parser").Parser || require("rss-parser");
@@ -35,6 +36,52 @@ function looksSummaryOnly(items) {
   return lens[Math.floor(lens.length / 2)] < FULLTEXT_SUGGEST_CHARS;
 }
 
+/** 聚合型源启发式（2026-10，AIGC NEWS 实测）：抽样前 5 条的 link，多数指向 **本站以外的域**
+ *  → 原文在第三方站点，打开文章抓全文基本抓不到（反爬/登录墙），确认步不该预开「抓取全文」。
+ *  判定拿 feed 自身域与 channel.link 域当"本站"，避免 feed 托管在第三方（如 feedburner）时误判。
+ *  @returns {boolean} true=聚合型 */
+function looksExternalLinks(items, feedUrl, siteUrl) {
+  const hosts = new Set();
+  for (const u of [feedUrl, siteUrl]) {
+    try {
+      const h = new URL(String(u)).hostname.toLowerCase();
+      if (h) hosts.add(h);
+    } catch (_) {
+      /* 解析不了就不参与"本站"判定 */
+    }
+  }
+  const links = (items || [])
+    .slice(0, 5)
+    .map((it) => String((it && it.link) || "").trim())
+    .filter(Boolean);
+  if (links.length < 2) return false; // 样本不足不下断言（单条/空源）
+  let parsed = 0;
+  let external = 0;
+  for (const link of links) {
+    let host = "";
+    try {
+      host = new URL(link).hostname.toLowerCase();
+    } catch (_) {
+      continue; // 非法链接不进分母（分母只算能解析的条目）
+    }
+    parsed += 1;
+    if (host && !hosts.has(host)) external += 1;
+  }
+  if (parsed < 2) return false; // 可解析样本仍不足
+  return external / parsed >= 0.6;
+}
+
+/** 发现结果候选统一构造（title/itemCount/summaryOnly/externalLinks 口径只此一处） */
+function buildCandidate(url, meta, items) {
+  return {
+    url,
+    title: (meta && meta.title) || url,
+    itemCount: items.length,
+    summaryOnly: looksSummaryOnly(items),
+    externalLinks: looksExternalLinks(items, url, meta && meta.siteUrl),
+  };
+}
+
 /** 文本是否像 RSS/Atom 源（宽松判定：声明或根元素） */
 function looksLikeFeedXml(text) {
   const head = String(text).slice(0, 600).toLowerCase();
@@ -62,9 +109,12 @@ function decodeBuffer(buf, contentType) {
 
 /**
  * 解析 feed XML → 归一化条目
+ * @param {string} xml
+ * @param {string} [feedUrl] 源地址：供 feed 级适配器（site adapters）识别站点用；
+ *        缺省时适配器不介入（纯通用链路，测试与旧调用方不受影响）
  * @returns {{meta:{title,siteUrl,desc}, items:Array}}
  */
-async function parseFeedXml(xml) {
+async function parseFeedXml(xml, feedUrl = "") {
   const parsed = await parser.parseString(xml);
   const now = Date.now();
   const items = [];
@@ -72,7 +122,16 @@ async function parseFeedXml(xml) {
   // preload 与渲染层同线程，一口气处理几十条会把刷新期间的 UI 卡成幻灯片
   for (let i = 0; i < (parsed.items || []).length; i++) {
     const raw = parsed.items[i];
-    const contentHtml = sanitizeContent(raw.contentEncoded || raw.encodedAlt || raw.content || raw.summary || "");
+    const rawBody = raw.contentEncoded || raw.encodedAlt || raw.content || raw.summary || "";
+    // 站内适配（feed 级）先清正文里的固定噪音（如聚合源的引流尾巴），再段落化：
+    // 纯文本源的 \n 段落不转 <p>，浏览器会把整篇折叠成一堵墙（2026-10 AIGC NEWS 实测）
+    const adapted = adapters.applyFeedAdapter(feedUrl, { rawBody: String(rawBody || ""), link: raw.link || "" });
+    const normalized = paragraphizePlainText(adapted == null ? rawBody : adapted);
+    const contentHtml = sanitizeContent(normalized);
+    // 摘要口径：默认沿用 rss-parser 的 contentSnippet（保留「description=编辑摘要 + content:encoded=全文」
+    // 这类 WordPress 系源的编辑手写摘要）；**只有本模块真的改过正文**（站点适配命中或纯文本被段落化）时，
+    // 才改用最终正文派生——否则适配剥掉的引流/自引用尾巴会被原始 snippet 又带进列表摘要（2026-10 实测）
+    const bodyChanged = adapted != null || normalized !== rawBody;
     let pubTs = raw.isoDate ? Date.parse(raw.isoDate) : NaN;
     if (!Number.isFinite(pubTs)) pubTs = now; // 无日期源用入库时间，仅展示排序（不参与 _id）
     if (pubTs > now + 60_000) pubTs = now; // 未来日期 clamp
@@ -84,7 +143,7 @@ async function parseFeedXml(xml) {
       pubTs,
       contentHtml,
       contentHash: crypto.createHash("sha256").update(contentHtml || String(raw.title || "")).digest("hex").slice(0, 12),
-      summaryText: makeSummary(raw.contentSnippet || contentHtml || raw.title || ""),
+      summaryText: makeSummary(bodyChanged ? contentHtml : raw.contentSnippet || contentHtml || raw.title || ""),
       cover: extractCover(contentHtml),
     });
     if (i % 5 === 4) await new Promise((r) => setTimeout(r, 0));
@@ -116,7 +175,7 @@ async function fetchFeed(feedUrl, cond = {}) {
   const xml = decodeBuffer(res.body, res.headers["content-type"]);
   if (!looksLikeFeedXml(xml)) return { status: "error", error: "NOT_FEED_XML" };
   try {
-    const { meta, items } = await parseFeedXml(xml);
+    const { meta, items } = await parseFeedXml(xml, feedUrl);
     return {
       status: "ok",
       meta,
@@ -149,7 +208,7 @@ async function discoverFeed(inputUrl) {
   // 1) 直连即 feed
   const direct = await fetchFeed(url, { timeout: 10000 });
   if (direct.status === "ok") {
-    return { found: true, candidates: [{ url, title: direct.meta.title || url, itemCount: direct.items.length, summaryOnly: looksSummaryOnly(direct.items) }], tried: [{ path: "(直连)", result: "feed" }] };
+    return { found: true, candidates: [buildCandidate(url, direct.meta, direct.items)], tried: [{ path: "(直连)", result: "feed" }] };
   }
   tried.push({ path: "(直连)", result: direct.error });
 
@@ -171,7 +230,7 @@ async function discoverFeed(inputUrl) {
     for (const link of links) {
       const probe = await fetchFeed(link, { timeout: 8000 });
       if (probe.status === "ok") {
-        return { found: true, candidates: [{ url: link, title: probe.meta.title || link, itemCount: probe.items.length, summaryOnly: looksSummaryOnly(probe.items) }], tried: tried.concat([{ path: "<link> 声明", result: link }]) };
+        return { found: true, candidates: [buildCandidate(link, probe.meta, probe.items)], tried: tried.concat([{ path: "<link> 声明", result: link }]) };
       }
       tried.push({ path: "<link> 声明", result: probe.error });
     }
@@ -185,7 +244,7 @@ async function discoverFeed(inputUrl) {
     const cand = origin + p;
     const probe = await fetchFeed(cand, { timeout: 5000 });
     if (probe.status === "ok") {
-      return { found: true, candidates: [{ url: cand, title: probe.meta.title || cand, itemCount: probe.items.length, summaryOnly: looksSummaryOnly(probe.items) }], tried: tried.concat([{ path: p, result: "feed" }]) };
+      return { found: true, candidates: [buildCandidate(cand, probe.meta, probe.items)], tried: tried.concat([{ path: p, result: "feed" }]) };
     }
     tried.push({ path: p, result: probe.error });
   }
@@ -193,4 +252,4 @@ async function discoverFeed(inputUrl) {
   return { found: false, candidates: [], tried };
 }
 
-module.exports = { fetchFeed, discoverFeed, normalizeUrl, parseFeedXml, looksLikeFeedXml, decodeBuffer, looksSummaryOnly };
+module.exports = { fetchFeed, discoverFeed, normalizeUrl, parseFeedXml, looksLikeFeedXml, decodeBuffer, looksSummaryOnly, looksExternalLinks };

@@ -23,6 +23,8 @@ const form = reactive({ title: "", category: "默认", refreshMin: 0, fullText: 
 
 /** 发现期启发式信号（null = 无信号，如 mock；true = 摘要型源 → 预开抓取全文；false = 全文型 → 保持关） */
 const fullTextSuggest = ref<boolean | null>(null);
+/** 聚合型源信号（条目 link 多指向第三方站点）：这类源打开文章抓不到全文，不预开（2026-10 AIGC NEWS） */
+const externalLinks = ref(false);
 
 const props = defineProps<{ presetUrl?: string }>();
 
@@ -57,7 +59,9 @@ async function discover() {
     chosen.value = 0;
     form.title = res.candidates[0].title;
     fullTextSuggest.value = res.candidates[0].summaryOnly ?? null;
-    form.fullText = fullTextSuggest.value === true; // 摘要型源智能预开；全文型/未知默认关，用户可在确认步改
+    externalLinks.value = res.candidates[0].externalLinks === true;
+    // 摘要型源智能预开；聚合型源（原文在第三方站点）即使摘要型也不预开（抓不到，徒增失败请求）；其余默认关
+    form.fullText = fullTextSuggest.value === true && !externalLinks.value;
     step.value = "candidates";
   } else {
     tried.value = res.tried;
@@ -73,7 +77,8 @@ function pick() {
   // 按实际选中候选重算（当前 discoverFeed 恒单候选，此为多候选 future-proof；confirm 步
   // 无「上一步」，不存在用户改过开关再 pick 的覆盖窗口）
   fullTextSuggest.value = c.summaryOnly ?? null;
-  form.fullText = fullTextSuggest.value === true;
+  externalLinks.value = c.externalLinks === true;
+  form.fullText = fullTextSuggest.value === true && !externalLinks.value;
   step.value = "confirm";
 }
 
@@ -88,6 +93,10 @@ const refreshOptions = [
 
 const fullTextHint = computed(() => {
   // 文案随 (判定信号, 开关实际状态) 双轴变化——用户手动改开关后不再显示与状态矛盾的「已自动开启」
+  if (fullTextSuggest.value === true && externalLinks.value)
+    return form.fullText
+      ? "该源为聚合型（原文在第三方站点），抓取全文通常失败；已手动开启"
+      : "该源为聚合型（原文在第三方站点），已在 Feed 内带摘要，无需抓取全文";
   if (fullTextSuggest.value === true)
     return form.fullText ? "检测到该源仅提供摘要，已自动开启（打开文章时抓取原文）" : "检测到该源仅提供摘要，建议开启抓取全文";
   if (fullTextSuggest.value === false)

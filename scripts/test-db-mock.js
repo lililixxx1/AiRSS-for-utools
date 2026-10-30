@@ -334,20 +334,69 @@ function mkItems(overrides) {
 
     stub = async () => ({ ok: false, url: "https://ex/a", status: 500, headers: {}, body: null, truncated: false, error: "HTTP_500" });
     raw.delete("itemfullx:" + mainId);
+    extractSvc.__test.clearMemo(); // 失败记忆会短路后续用例（每例都是全新的失败原因）
     r = await extractSvc.ensureFull(mainId);
     ok("FETCH_HTTP_500", r.status === "error" && r.error === "FETCH_HTTP_500");
 
+    // 失败记忆（PLAN-RSS-ADAPT）：同一篇 10 分钟内再打开不再发请求
+    const callsBeforeMemo = fetchCalls;
+    r = await extractSvc.ensureFull(mainId);
+    ok("失败记忆：窗口内二次打开零请求", fetchCalls === callsBeforeMemo && r.status === "error" && r.error === "FETCH_HTTP_500");
+    extractSvc.__test.clearMemo();
+    r = await extractSvc.ensureFull(mainId);
+    ok("失败记忆：清空后可重试（重新发请求）", fetchCalls === callsBeforeMemo + 1 && r.error === "FETCH_HTTP_500");
+
     stub = async () => ({ ok: true, url: "https://ex/a", status: 202, headers: {}, body: Buffer.alloc(0), truncated: false, error: null });
+    extractSvc.__test.clearMemo();
     r = await extractSvc.ensureFull(mainId);
     ok("FETCH_EMPTY_BODY（bot 挑战空页）", r.status === "error" && r.error === "FETCH_EMPTY_BODY");
 
     stub = async () => ({ ok: true, url: "https://ex/a", status: 200, headers: { "content-type": "text/html" }, body: Buffer.from("<html><body><p>太短</p></body></html>"), truncated: false, error: null });
+    extractSvc.__test.clearMemo();
     r = await extractSvc.ensureFull(mainId);
     ok("EXTRACT_TOO_SHORT（不落库可重试）", r.status === "error" && r.error === "EXTRACT_TOO_SHORT" && (await db.promises.get("itemfullx:" + mainId)) === null);
 
     stub = async () => ({ ok: true, url: "https://ex/a", status: 200, headers: { "content-type": "text/html" }, body: Buffer.from("<html><head><title>t</title></head><body></body></html>"), truncated: false, error: null });
+    extractSvc.__test.clearMemo();
     r = await extractSvc.ensureFull(mainId);
     ok("EXTRACT_FAILED（Readability null；碎 HTML 抛错同归此）", r.status === "error" && r.error === "EXTRACT_FAILED");
+
+    // ---- 站内适配层落库（PLAN-RSS-ADAPT）：短篇结构化正文绕过 600 字全文线 + 封面补写 ----
+    const adpId = "item:feed:x1:" + dbSvc.sha12("gadp");
+    mkItem(adpId, { link: "https://radar.everythingisok.top/items/abc", cover: undefined });
+    const ADAPTER_PAGE = `<html><head><meta property="og:image" content="https://radar.everythingisok.top/og/items/abc.png"></head><body><article>
+      <div><span>V2EX</span><time>2026-10-30</time></div><h1>标题不进正文</h1><p>作者分享了一个跨平台构建工具，值得一看。</p>
+      <section><div>AI 导读</div><p>【这是什么】一段导读文字，说明它解决了什么问题，为什么值得关注，以及在什么场景下特别有用。</p></section>
+      <section><div>推荐理由</div><p>推荐理由的文字，讲清楚为什么值得看：作者把跨平台构建的踩坑过程与配置细节都写了出来。</p></section>
+      <p>来源：<a href="https://www.v2ex.com/t/1">V2EX · 创造节点</a></p>
+      </article></body></html>`;
+    stub = async () => ({ ok: true, url: "https://radar.everythingisok.top/items/abc", status: 200, headers: { "content-type": "text/html; charset=utf-8" }, body: Buffer.from(ADAPTER_PAGE), truncated: false, error: null });
+    extractSvc.__test.clearMemo();
+    r = await extractSvc.ensureFull(adpId);
+    ok("适配命中：短篇结构化正文也被落库（绕过 600 字线）", r.status === "fetched" && r.content.includes("<h2>AI 导读</h2>") && r.content.includes("<h2>推荐理由</h2>"));
+    const stored = await db.promises.get("itemfullx:" + adpId);
+    ok("适配产物标记来源（src=adapter:*）", !!stored && /^adapter:/.test(stored.src));
+    ok("封面补写进 item（只补空）", (await db.promises.get(adpId)).cover === "https://radar.everythingisok.top/og/items/abc.png");
+    r = await extractSvc.ensureFull(adpId);
+    ok("适配产物二次打开走缓存（hit，不再抓）", r.status === "hit" && r.content.includes("AI 导读"));
+
+    // 已有封面不被适配器 cover 覆盖（只补空）
+    const coverId = "item:feed:x1:" + dbSvc.sha12("gcov");
+    mkItem(coverId, { link: "https://radar.everythingisok.top/items/abc", cover: "https://old.example/cover.png" });
+    r = await extractSvc.ensureFull(coverId);
+    ok("已有封面不被覆盖（只补空）", r.status === "fetched" && (await db.promises.get(coverId)).cover === "https://old.example/cover.png");
+
+    // 适配产物过短（页面改版/空壳）→ 不采用，回落 Readability 通用链路
+    const shortId = "item:feed:x1:" + dbSvc.sha12("gshort");
+    mkItem(shortId, { link: "https://hellogithub.com/periodical/volume/1", cover: undefined });
+    const SHORT_ADAPTER_PAGE = `<html><body>
+      <script id="__NEXT_DATA__" type="application/json">${JSON.stringify({ props: { pageProps: { volume: { data: [{ category_name: "C", items: [{ name: "x" }] }] } } } })}</script>
+      <article><h1>通用链路标题</h1>${"<p>这一段来自 Readability 通用链路，用来验证适配产物过短时仍能回落成功。".repeat(30)}</article>
+      </body></html>`;
+    stub = async () => ({ ok: true, url: "https://hellogithub.com/periodical/volume/1", status: 200, headers: { "content-type": "text/html; charset=utf-8" }, body: Buffer.from(SHORT_ADAPTER_PAGE), truncated: false, error: null });
+    extractSvc.__test.clearMemo();
+    r = await extractSvc.ensureFull(shortId);
+    ok("适配产物 <80 字 → 回落 Readability 并落库", r.status === "fetched" && r.content.includes("通用链路") && (await db.promises.get("itemfullx:" + shortId)).src === "readability");
   }
 
   console.log("\n全部通过：" + pass + " 项（数据层 + 端到端刷新管线）");

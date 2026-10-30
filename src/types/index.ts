@@ -109,12 +109,14 @@ export const DEFAULT_SETTINGS: Settings = {
   highlightWords: [],
 };
 
-/** 发现管线的候选源；summaryOnly：发现期启发式判定该源只带摘要（true/false/null=无信号，驱动「抓取全文」智能默认） */
+/** 发现管线的候选源；summaryOnly：发现期启发式判定该源只带摘要（true/false/null=无信号，驱动「抓取全文」智能默认）。
+ *  externalLinks：聚合型源信号（条目 link 多数指向第三方站点），这类源抓不到全文，默认不预开。 */
 export interface FeedCandidate {
   url: string;
   title: string;
   itemCount: number;
   summaryOnly?: boolean | null;
+  externalLinks?: boolean;
 }
 
 export interface TriedPath {

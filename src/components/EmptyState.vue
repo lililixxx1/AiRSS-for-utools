@@ -9,9 +9,14 @@ const ui = useUiStore();
 
 const RECOMMENDED = [
   { title: "橘鸦AI早报", url: "https://daily.juya.uk/rss.xml" },
+  { title: "HelloGitHub 月刊", url: "https://hellogithub.com/rss" },
+  { title: "Indie Radar", url: "https://radar.everythingisok.top/" },
+  { title: "AIGC NEWS", url: "https://aigcnews.cn/" },
   { title: "阮一峰的网络日志", url: "https://www.ruanyifeng.com/blog/atom.xml" },
   { title: "少数派", url: "https://sspai.com/feed" },
 ]; // 少数派等摘要型源无需手工预设 fullText：发现管线 summaryOnly 启发式会在确认步自动预开
+// HelloGitHub / Indie Radar 两个站点的正文靠 preload 站内适配层还原（期刊页内嵌 JSON、精选页栏目区块），
+// 通用 Readability 会吃掉项目名/只留元信息行——见 preload/services/adapters.js
 
 /** 首用引导输入框的值（handler 内直取——computed DOM 查询无响应依赖，会在 setup 期读到 null 并永久缓存） */
 function readUrlInput(): string {

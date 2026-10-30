@@ -7,7 +7,7 @@ const path = require("path");
 const PRELOAD = path.join(__dirname, "..", "preload");
 
 const { sanitizeContent, makeSummary, extractCover, readingMinutes, htmlToText } = require(path.join(PRELOAD, "services/article.js"));
-const { parseFeedXml, decodeBuffer, looksLikeFeedXml, looksSummaryOnly } = require(path.join(PRELOAD, "services/feed.js"));
+const { parseFeedXml, decodeBuffer, looksLikeFeedXml, looksSummaryOnly, looksExternalLinks } = require(path.join(PRELOAD, "services/feed.js"));
 const { parseOpml, buildOpml } = require(path.join(PRELOAD, "services/opml.js"));
 const { nodeFetch } = require(path.join(PRELOAD, "services/http.js"));
 const iconv = require(path.join(PRELOAD, "node_modules/iconv-lite"));
@@ -45,6 +45,9 @@ ok("摘要 ≤300", makeSummary("a".repeat(400)).length <= 301);
 ok("封面提取", extractCover('<p><img src="https://x/a.png"></p>') === "https://x/a.png");
 ok("封面跳过 http 图", extractCover('<img src="http://x/a.png">') === null);
 ok("阅读时长", readingMinutes("x".repeat(800)) === 2);
+ok("htmlToText 块级边界补空格（不粘连）", htmlToText("<p>alpha</p><p>beta</p>") === "alpha beta");
+ok("htmlToText 行内标签仍紧邻（不插空格）", htmlToText("<p>a<strong>b</strong>c</p>") === "abc");
+ok("htmlToText <br> 视为分隔", htmlToText("<p>一<br>二</p>") === "一 二");
 
 // ---- feed 解析 ----
 console.log("[feed] 解析与编码");
@@ -83,6 +86,16 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     ok("启发式：中位数而非均值（4短+1超长 → 摘要型）", looksSummaryOnly([{ contentHtml: "短".repeat(100) }, { contentHtml: "短".repeat(100) }, { contentHtml: "短".repeat(100) }, { contentHtml: "短".repeat(100) }, { contentHtml: "长".repeat(5000) }]) === true);
     ok("启发式：长正文主流+单篇短 → 全文型", looksSummaryOnly([...fullFeed.items, ...fullFeed.items, { contentHtml: "只有一句" }]) === false);
 
+    // 聚合型源启发式（2026-10，AIGC NEWS）：条目 link 多数在站外 → 不预开抓取全文
+    {
+      const ext = (links) => links.map((l) => ({ link: l }));
+      ok("聚合型：链接全在站外 → true", looksExternalLinks(ext(["https://www.huxiu.com/a", "https://sspai.com/b"]), "https://aigcnews.cn/api/feed.xml", "https://aigcnews.cn/") === true);
+      ok("聚合型：链接在本站 → false", looksExternalLinks(ext(["https://aigcnews.cn/a", "https://aigcnews.cn/b"]), "https://aigcnews.cn/api/feed.xml", "https://aigcnews.cn/") === false);
+      ok("聚合型：以 channel.link 域为本站（feed 托管第三方不误判）", looksExternalLinks(ext(["https://blog.example/post/1", "https://blog.example/post/2"]), "https://feeds.feedburner.com/x", "https://blog.example/") === false);
+      ok("聚合型：样本不足不下断言", looksExternalLinks(ext(["https://www.huxiu.com/a"]), "https://aigcnews.cn/api/feed.xml", "") === false);
+      ok("聚合型：混合 1 站外 1 站内 → false（未过 60% 线）", looksExternalLinks(ext(["https://www.huxiu.com/a", "https://aigcnews.cn/b"]), "https://aigcnews.cn/api/feed.xml", "") === false);
+    }
+
     // GBK 兜底
     const gbkXml = iconv.encode(`<?xml version="1.0" encoding="GBK"?><rss version="2.0"><channel><title>中文编码</title></channel></rss>`, "gbk");
     ok("GBK 解码", decodeBuffer(gbkXml, "").includes("中文编码"));
@@ -107,6 +120,115 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     const round = parseOpml(xml);
     ok("导出→再导入往返一致", round[0].xmlUrl === "https://r/atom.xml" && round[0].category === "技术");
     ok("标题转义", buildOpml([{ title: 'a"b<c', url: "https://x" }]).includes("&quot;"));
+
+    // ---- 站内适配层（PLAN-RSS-ADAPT）：纯文本段落化 + feed/文章适配器（fixture，无网络）----
+    console.log("[adapters] 纯文本段落化 + 站内适配");
+    {
+      const { paragraphizePlainText } = require(path.join(PRELOAD, "services/article.js"));
+      const adapters = require(path.join(PRELOAD, "services/adapters.js"));
+
+      // 纯文本正文段落化（AIGC NEWS 类聚合源）
+      const cn = paragraphizePlainText("第一段讲事情。\n第二段接着讲。\n\n第三段收尾。");
+      ok("中文一段一行 → 三个 <p>", (cn.match(/<p>/g) || []).length === 3);
+      ok("段落内容原样保留", cn.includes("第二段接着讲") && cn.includes("第三段收尾"));
+      const en = paragraphizePlainText("This is a hard wrapped english line without terminal punctuation\nand it continues on the next line.\nAnother paragraph starts here.");
+      ok("拉丁文硬折行接回同一段", (en.match(/<p>/g) || []).length === 2 && en.includes("punctuation and it continues"));
+      ok("已含标签的富文本不介入", paragraphizePlainText("<p>a</p>\n<p>b</p>") === "<p>a</p>\n<p>b</p>");
+      ok("无换行的单段不介入（不抖动 contentHash）", paragraphizePlainText("单段纯文本") === "单段纯文本");
+      ok("纯文本转义 &lt; &amp;", paragraphizePlainText("a < b & c\nd").includes("a &lt; b &amp; c"));
+
+      // feed 级适配：AIGC NEWS 引流行剥离（按 feed URL 匹配）+ 段落化
+      const AIGC_RSS = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>AIGC NEWS</title>
+<link>https://aigcnews.cn/</link><description>d</description>
+<item><title>资讯一</title><link>https://www.huxiu.com/moment/1.html</link><guid>a1</guid>
+<description>第一段内容。\n第二段内容。\n\n📮 全文 RSS（中文译文 · 完整归档），注册登录即可免费订阅：https://aigcnews.cn/subscriptions</description></item>
+</channel></rss>`;
+      const aigc = await parseFeedXml(AIGC_RSS, "https://aigcnews.cn/api/feed.xml");
+      ok("aigc：引流行被剥", !aigc.items[0].contentHtml.includes("订阅") && !aigc.items[0].contentHtml.includes("📮"));
+      ok("aigc：正文已段落化（≥2 段）", (aigc.items[0].contentHtml.match(/<p>/g) || []).length >= 2);
+      const aigcNoUrl = await parseFeedXml(AIGC_RSS); // 无 feedUrl：适配器不介入（通用链路行为不变）
+      ok("aigc：无 feedUrl 时引流行保留（适配器按站点生效）", aigcNoUrl.items[0].contentHtml.includes("订阅"));
+      ok("aigc：其它站不命中", adapters.applyFeedAdapter("https://other.example/feed", { rawBody: "a\n📮 全文 RSS 订阅 https://x.y" }) === null);
+
+      // 摘要口径：WordPress 系「description=编辑手写摘要 + content:encoded=全文」必须保留编辑摘要
+      const WP_XML = `<?xml version="1.0"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>WP 源</title><link>https://blog.example</link><description>d</description><item><title>文章</title><link>https://blog.example/post/1</link><guid>p1</guid><description>这是编辑手写的摘要（excerpt）。</description><content:encoded><![CDATA[<p>正文第一段，很长很长的正文开头，讲了很多细节。</p><p>第二段。</p>]]></content:encoded></item></channel></rss>`;
+      const wp = await parseFeedXml(WP_XML, "https://blog.example/feed");
+      ok("摘要口径：excerpt+全文双字段源仍用编辑摘要", wp.items[0].summaryText === "这是编辑手写的摘要（excerpt）。");
+      ok("摘要口径：正文仍取 content:encoded 全文", wp.items[0].contentHtml.includes("正文第一段"));
+
+      // feed 级适配：Indie Radar 自引用尾巴（列表摘要里会带出一长串 URL）
+      const RADAR_SELF = "https://radar.everythingisok.top/items/abc";
+      const RADAR_BODY =
+        '<p>一条精选摘要。</p><p>🔗 <a href="https://www.v2ex.com/t/1">阅读原文</a></p>' +
+        `<p>via Indie Radar · <a href="${RADAR_SELF}">${RADAR_SELF}</a></p>`;
+      const cleanedRadar = adapters.applyFeedAdapter("https://radar.everythingisok.top/feed.xml", { rawBody: RADAR_BODY, link: RADAR_SELF });
+      ok("radar：自引用 via 尾巴被剥、阅读原文保留", !cleanedRadar.includes("via Indie Radar") && cleanedRadar.includes("阅读原文") && cleanedRadar.includes("一条精选摘要"));
+      ok("radar：非本条目链接的 via 行不动", adapters.applyFeedAdapter("https://radar.everythingisok.top/feed.xml", { rawBody: RADAR_BODY, link: "https://radar.everythingisok.top/items/other" }) === null);
+      ok("radar：其它站 feed 不命中", adapters.applyFeedAdapter("https://hellogithub.com/rss", { rawBody: RADAR_BODY, link: RADAR_SELF }) === null);
+
+      // 文章级适配：HelloGitHub 月刊页（__NEXT_DATA__ 结构化真源）
+      const { parseHTML } = require(path.join(PRELOAD, "node_modules/linkedom"));
+      const HG_JSON = {
+        props: {
+          pageProps: {
+            volume: {
+              current_num: 127,
+              data: [
+                {
+                  category_name: "C 项目",
+                  items: [
+                    { name: "cbirds", full_name: "clainstone/cbirds", description: "在终端里看鸟群飞舞。", github_url: "https://github.com/clainstone/cbirds", stars: 227, forks: 6, image_url: "https://img.hellogithub.com/i/a.png!gif" },
+                    { name: "evil", full_name: "x/evil", description: "<img src=x onerror=1><script>alert(9)</script>注入样本文字", github_url: "javascript:alert(1)", stars: 0, forks: 0 },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      };
+      // 序列化后把 `</script` 转义成 `<\/script`：否则夹具里 description 的注入样本会提前闭合外层 script，
+      // 页面源码里不再出现 `</script`，JSON.parse 仍得到原始文本（适配器照常收到真实 payload）
+      const hgJson = JSON.stringify(HG_JSON).replace(/<\/script/gi, "<\\/script");
+      const hgDoc = parseHTML(`<html><body><script id="__NEXT_DATA__" type="application/json">${hgJson}</script></body></html>`).document;
+      const hg = adapters.extractArticle("https://hellogithub.com/periodical/volume/127", hgDoc);
+      ok("hellogithub：适配命中", !!hg && hg.adapter === "hellogithub");
+      ok("hellogithub：项目名进标题（Readability 会丢）", /<h3><a href="https:\/\/github\.com\/clainstone\/cbirds">cbirds<\/a><\/h3>/.test(hg.content));
+      ok("hellogithub：分类成 h2", hg.content.includes("<h2>C 项目</h2>"));
+      ok("hellogithub：星标/仓库链接保留", hg.content.includes("clainstone/cbirds") && hg.content.includes("★ 227"));
+      ok("hellogithub：封面取首项配图", hg.cover === "https://img.hellogithub.com/i/a.png!gif");
+      ok("hellogithub：非 http(s) 仓库地址被丢弃并回落 github 路径", !/javascript:/i.test(hg.content) && hg.content.includes('href="https://github.com/x/evil"'));
+      ok("hellogithub：JSON 损坏 → null（回落 Readability）", adapters.extractArticle("https://hellogithub.com/periodical/volume/1", parseHTML("<html><body><script id=\"__NEXT_DATA__\">{oops</script></body></html>").document) === null);
+      ok("hellogithub：非期刊页不命中", adapters.extractArticle("https://hellogithub.com/", hgDoc) === null);
+
+      // 文章级适配：Indie Radar 条目页（栏目区块重组）
+      const RADAR_HTML = `<html><head><meta property="og:image" content="https://radar.everythingisok.top/og/items/x.png"></head><body>
+        <article>
+          <div><span>V2EX · 创造节点</span><time>2026-10-30 08:51</time><span>AI 评分</span><span>76</span></div>
+          <h1>某项目的标题</h1>
+          <p>作者分享了一个跨平台构建工具。</p>
+          <section><div>AI 导读</div><p>【这是什么】一段导读文字，说明它解决了什么问题。</p></section>
+          <section><div>推荐理由</div><p>推荐理由的文字，讲清楚为什么值得看。</p></section>
+          <p>来源：<a href="https://www.v2ex.com/t/1">V2EX · 创造节点</a> · <a href="https://www.v2ex.com/t/1">v2ex.com</a></p>
+          <div><a class="chip" href="/all?tag=a">#开源神器</a><a class="chip" href="/all?tag=b">#独立开发</a></div>
+        </article></body></html>`;
+      const radar = adapters.extractArticle("https://radar.everythingisok.top/items/x", parseHTML(RADAR_HTML).document);
+      ok("radar：适配命中", !!radar && radar.adapter === "indie-radar");
+      ok("radar：摘录进正文、标题不进正文", radar.content.includes("跨平台构建工具") && !radar.content.includes("某项目的标题"));
+      ok("radar：导读/推荐理由成 h2 栏目", radar.content.includes("<h2>AI 导读</h2>") && radar.content.includes("<h2>推荐理由</h2>"));
+      ok("radar：来源链接保留", radar.content.includes('<a href="https://www.v2ex.com/t/1">V2EX · 创造节点</a>'));
+      ok("radar：标签去 # 保留", radar.content.includes("开源神器 · 独立开发"));
+      ok("radar：封面取 og:image", radar.cover === "https://radar.everythingisok.top/og/items/x.png");
+      ok("radar：空壳页面 → null", adapters.extractArticle("https://radar.everythingisok.top/items/y", parseHTML("<html><body><article><h1>只有标题</h1></article></body></html>").document) === null);
+
+      // 通用：适配后仍过 sanitize（适配器不是可信输入）
+      // 通用：适配后仍过 sanitize（适配器不是可信输入）——用带注入样本的条目真验一遍，
+      // 不能拿「本来就没有 payload 的产物」空转断言
+      // 断言只看「标签/属性」形态：注入样本作为纯文本出现（onerror=1 字样留在文本里）是安全的
+      const hgClean = sanitizeContent(hg.content);
+      ok("适配产物经 sanitize：无 script 元素", !/<script/i.test(hgClean));
+      ok("适配产物经 sanitize：无事件属性（on*=）", !/<[a-z][^>]*\son[a-z]+\s*=/i.test(hgClean));
+      ok("适配产物经 sanitize：注入样本降级为纯文本（文字保留）", hgClean.includes("注入样本文字"));
+    }
 
     // ---- 全文提取链路（fixture，无网络；状态机见 test-db-mock）----
     console.log("[extract] Readability 提取消毒（fixture）");
