@@ -50,6 +50,7 @@ function onRailSearchKey(e: KeyboardEvent) {
 
 const menuOpenId = ref<string | null>(null);
 const catMenuOpen = ref<string | null>(null);
+const recMenuOpen = ref(false); // 推荐入口 ⋯ 菜单（v1.9）
 const editingFeed = ref<Feed | null>(null);
 const opmlFileInput = ref<HTMLInputElement | null>(null);
 
@@ -99,6 +100,7 @@ function toggleMenu(f: Feed) {
 function closeMenu() {
   menuOpenId.value = null;
   catMenuOpen.value = null;
+  recMenuOpen.value = false;
 }
 
 // ---- 分类管理（PLAN-V1.3 D1）：重命名 / 合并 / 删除（成员归「默认」）----
@@ -227,8 +229,20 @@ watch(autoNarrow, (n) => {
 });
 /** 推荐页入口：覆盖内容列；抽屉态顺手收抽屉 */
 function openRecommend() {
+  recMenuOpen.value = false;
   ui.openRecommend();
   navFold();
+}
+/** 推荐入口右侧 ⋯ 菜单（与订阅行/分类行同一交互，2026-10-30 用户要求） */
+function toggleRecMenu() {
+  recMenuOpen.value = !recMenuOpen.value;
+}
+/** 隐藏推荐入口 = 关同一个设置项（设置页是唯一「重新开启」入口，不造第二套状态） */
+function hideRecommend() {
+  recMenuOpen.value = false;
+  settings.set("recommendEnabled", false);
+  if (ui.view === "recommend") ui.view = "main"; // 正停在推荐页时退回列表，避免看着一个已隐藏功能的页面
+  ui.toast("已隐藏推荐入口，可在「设置 · 外观」重新开启");
 }
 /** 推荐源总数（入口右上的数字，来自共享清单，避免与推荐页两处口径分叉） */
 const recommendTotal = RECOMMEND_ALL.length;
@@ -305,21 +319,41 @@ function navFold() {
         <button class="icon-btn add-btn" aria-label="添加订阅" @click="ui.modal = { type: 'addFeed' }"><I.plus /></button>
       </div>
       <!-- 推荐订阅入口（v1.9）：固定贴在「订阅源」标题下、列表之上——不随订阅数下沉；
-           设置可关闭（recommendEnabled）；折叠轨退化为图标钮，保证入口仍可达 -->
-      <button
-        v-if="settings.recommendEnabled"
-        class="rec-entry"
-        :class="{ on: ui.view === 'recommend', rail: collapsed }"
-        :title="collapsed ? '推荐订阅' : '推荐订阅：精选源，点开可一键订阅'"
-        :aria-label="'推荐订阅，共 ' + recommendTotal + ' 个精选源'"
-        @click="openRecommend"
-      >
-        <I.sparkle />
+           设置可关闭（recommendEnabled）；折叠轨退化为图标钮，保证入口仍可达。
+           右侧 ⋯ 与普通订阅行同形（悬停显现），菜单里可直接隐藏本入口——隐藏走同一设置项，
+           设置页仍是重新开启的唯一入口，避免两套状态。 -->
+      <div v-if="settings.recommendEnabled" class="rec-row" :class="{ rail: collapsed }">
+        <button
+          class="rec-entry"
+          :class="{ on: ui.view === 'recommend' }"
+          :title="collapsed ? '推荐订阅' : '推荐订阅：精选源，点开可一键订阅'"
+          :aria-label="'推荐订阅，共 ' + recommendTotal + ' 个精选源'"
+          @click="openRecommend"
+        >
+          <I.sparkle />
+          <template v-if="!collapsed">
+            <span class="rec-entry-label">推荐订阅</span>
+            <span class="rec-entry-sub num">{{ recommendTotal }}</span>
+          </template>
+        </button>
         <template v-if="!collapsed">
-          <span class="rec-entry-label">推荐订阅</span>
-          <span class="rec-entry-sub num">{{ recommendTotal }}</span>
+          <button
+            class="rec-more icon-btn"
+            :class="{ on: recMenuOpen }"
+            aria-label="推荐订阅操作"
+            title="推荐订阅操作"
+            @click.stop="toggleRecMenu"
+          >
+            <I.moreVertical />
+          </button>
+          <Transition name="pop">
+            <div class="fi-menu rec-menu" v-if="recMenuOpen" @click.stop>
+              <button class="menu-item" @click="openRecommend(); recMenuOpen = false"><I.sparkle />打开推荐订阅</button>
+              <button class="menu-item danger" @click="hideRecommend"><I.volumeX />隐藏推荐入口</button>
+            </div>
+          </Transition>
         </template>
-      </button>
+      </div>
       <div class="feed-list" role="list">
         <div
           v-for="(f, i) in data.feeds"
@@ -520,10 +554,14 @@ html[data-theme="dark"] .rail-search-panel { background: var(--bg-elevated); }
 .add-btn:active { background: var(--accent-active); } /* 主按钮变体按下走 accent-active（C1） */
 
 /* 推荐订阅入口（v1.9）：accent-soft 底 + accent-deep 字，与普通订阅行区分「这是一扇门而非一个源」；
-   高度对齐 feed-item 的 32 行高节奏；折叠轨退化为 40×40 图标钮（轨宽 64，居中对齐） */
+   行容器 + 右侧 ⋯ 与订阅行/分类行同构（悬停显现，菜单绝对定位在 .rec-row 上）；
+   折叠轨退化为 40×40 图标钮（轨宽 64，居中对齐），此时不渲染 ⋯ */
+.rec-row { position: relative; display: flex; align-items: center; gap: 2px; margin: 0 0 4px; }
+.rec-row.rail { justify-content: center; margin: 2px 0 8px; }
 .rec-entry {
-  display: flex; align-items: center; gap: 8px; width: 100%;
-  min-height: 32px; padding: 5px 10px; margin: 0 0 4px;
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 8px;
+  min-height: 32px; padding: 5px 10px;
   border: 1px solid transparent; border-radius: var(--r-md);
   background: var(--accent-soft); color: var(--accent-deep);
   font-family: inherit; font-size: 13px; font-weight: 600;
@@ -537,10 +575,15 @@ html[data-theme="dark"] .rail-search-panel { background: var(--bg-elevated); }
 .rec-entry svg { font-size: 14px; flex-shrink: 0; }
 .rec-entry-label { flex: 1; min-width: 0; }
 .rec-entry-sub { font-size: 11px; font-weight: 600; color: var(--accent-deep); opacity: 0.75; }
-.rec-entry.rail {
-  width: 40px; height: 40px; min-height: 0; margin: 2px auto 8px;
+/* 折叠轨：入口退化为图标钮（⋯ 不渲染，菜单与隐藏入口只在宽幅提供） */
+.rec-row.rail .rec-entry {
+  flex: 0 0 40px; width: 40px; height: 40px; min-height: 0;
   padding: 0; justify-content: center; font-size: 15px;
 }
+/* ⋯ 与 feed-item 的 .fi-more 同形：默认隐、悬停/聚焦/菜单打开时显 */
+.rec-more { opacity: 0; width: 22px; height: 22px; flex-shrink: 0; font-size: 13px; color: var(--accent-deep); }
+.rec-row:hover .rec-more, .rec-row:focus-within .rec-more, .rec-more.on { opacity: 1; }
+.rec-menu { right: 4px; top: calc(100% - 2px); }
 
 .feed-item {
   position: relative;

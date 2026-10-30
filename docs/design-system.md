@@ -333,6 +333,7 @@
 - 源行（整行是一个 button）：标题 14px/600 `--text-1` + 描述 12px/1.6 `--text-2` 两行截断（`.clamp-2`）+ URL 11px `--text-3`；右侧胶囊动作 26px 高、r-full、1px `--border-strong`，行 hover 时变 `--accent-soft` 底 + `--accent-deep` 字。
 - 已订阅行：整行 opacity .72，标题右侧「✓已订阅」11px/600 `--accent-deep`，胶囊改虚线边框 + 文案「查看」——**点击语义变为跳到该源列表**（不再重复订阅）。
 - 入口三处同源：侧栏「订阅源」标题下（`--accent-soft` 底 + `--accent-deep` 字，折叠轨为 40×40 图标钮）、空态第 5 个芯片「更多推荐 ›」、设置页「外观 · 推荐订阅入口」开关。
+- 侧栏入口的 ⋯（与订阅行/分类行同构）：`.rec-row` 行容器（relative，flex，gap 2）内是入口按钮（flex:1）+ 22×22 图标钮；图标默认 `opacity:0`，行 hover / `:focus-within` / 菜单打开时显形；菜单复用 `.fi-menu`（`.rec-menu` 定位 right:4 / top:calc(100%-2px)），两项「打开推荐订阅 / 隐藏推荐入口」，隐藏即写 `recommendEnabled=false` + toast 指路设置页（不另造状态）。折叠轨不渲染 ⋯。
 
 ---
 
