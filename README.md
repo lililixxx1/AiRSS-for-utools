@@ -35,7 +35,7 @@ node scripts/check-theme-contrast.js  # 多主题配色守门（warm 快照 + �
 python scripts/make-logo.py     # 重新生成 logo
 ```
 
-浏览器 dev 直达状态（mock 专用）：`?view=reader` / `?view=settings` / `?view=addfeed`。
+浏览器 dev 直达状态（mock 专用）：`?view=reader` / `?view=settings` / `?view=addfeed` / `?view=recommend`。
 
 ## 接入 uTools（开发者模式）
 
@@ -74,6 +74,11 @@ python scripts/make-logo.py     # 重新生成 logo
 - **组织补齐（P2）**：分类重命名/合并/删除（⋯ 菜单）；订阅源拖拽排序（order 持久化，新增源排末尾，OPML 导出随序）；订阅地址可改（换源不换 feedKey，已读/星标/AI 产物全保留，条件缓存自动重置并首抓）
 - **内容搜索升级**：扫 itemfull + itemfullx 双前缀（同 id 去重）；万级存量实测 1.5s 预算仅扫 ~20% 即截断降级（`node scripts/bench-search.js` 复现），维持预算截断不开发索引
 - 仍留路线：云同步合并矩阵、卡片封面渐变生成、倒排搜索索引（万级实测已截断降级维持，见待验证项）、持久化智能文件夹（v2 视标签使用率再议）
+
+## v1.9（推荐订阅页，已实现）
+
+- **推荐订阅页**：侧栏「订阅源」下方新增入口（设置 · 外观可关闭；侧栏折叠时为图标钮），页内按「精品聚合 / 技术社区 / 数码与产品」列出 12 个**实测可订阅**的中文源；点「订阅」仍走发现确认弹窗（可改名/选分类/决定是否抓取全文），已订阅的行点击直接跳到该源列表（不重复建源）；空态第 5 个芯片「更多推荐 ›」同入口
+- 清单单一真源 `src/lib/recommend.ts`（空态芯片 / 侧栏计数 / 推荐页 / 设置文案四处共用），`feedUrlKey` 归一判重（协议、`www.`、末尾斜杠不参与）；准入纪律：新增源必须联网实测通过——2026-10-30 体检淘汰 V2EX / 36氪 / HN / 虎嗅 / 产品沉思录
 
 ## 实机待验证项（spike，见 PLAN §12）
 

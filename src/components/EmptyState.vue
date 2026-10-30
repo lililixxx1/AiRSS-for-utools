@@ -1,22 +1,19 @@
 <script setup lang="ts">
 import { useDataStore } from "../stores/data";
+import { useSettingsStore } from "../stores/settings";
 import { useUiStore } from "../stores/ui";
 import { I } from "./icons";
+import { RECOMMEND_CHIPS, RECOMMEND_ALL } from "../lib/recommend";
 
 const props = defineProps<{ kind: "first-run" | "no-result" | "all-empty" | "category-empty" | "all-read" | "muted-empty"; query?: string; category?: string }>();
 const data = useDataStore();
+const settings = useSettingsStore();
 const ui = useUiStore();
 
-const RECOMMENDED = [
-  { title: "橘鸦AI早报", url: "https://daily.juya.uk/rss.xml" },
-  { title: "HelloGitHub 月刊", url: "https://hellogithub.com/rss" },
-  { title: "Indie Radar", url: "https://radar.everythingisok.top/" },
-  { title: "AIGC NEWS", url: "https://aigcnews.cn/" },
-  { title: "阮一峰的网络日志", url: "https://www.ruanyifeng.com/blog/atom.xml" },
-  { title: "少数派", url: "https://sspai.com/feed" },
-]; // 少数派等摘要型源无需手工预设 fullText：发现管线 summaryOnly 启发式会在确认步自动预开
-// HelloGitHub / Indie Radar 两个站点的正文靠 preload 站内适配层还原（期刊页内嵌 JSON、精选页栏目区块），
-// 通用 Readability 会吃掉项目名/只留元信息行——见 preload/services/adapters.js
+/** 首用引导只铺前 4 个芯片（C14），全量清单在「推荐订阅」页——13 个芯片会把空态撑爆 */
+const chips = RECOMMEND_CHIPS;
+/** 「更多推荐」入口受设置开关约束（关掉推荐入口的用户不应在这里被绕开） */
+const moreVisible = RECOMMEND_ALL.length > chips.length && settings.recommendEnabled;
 
 /** 首用引导输入框的值（handler 内直取——computed DOM 查询无响应依赖，会在 setup 期读到 null 并永久缓存） */
 function readUrlInput(): string {
@@ -41,7 +38,8 @@ async function addRecommended(r: { url: string }) {
       </div>
       <p class="or">或从这些源开始</p>
       <div class="chips">
-        <button v-for="r in RECOMMENDED" :key="r.url" class="chip" @click="addRecommended(r)">{{ r.title }}</button>
+        <button v-for="r in chips" :key="r.url" class="chip" @click="addRecommended(r)">{{ r.title }}</button>
+        <button v-if="moreVisible" class="chip chip-more" @click="ui.openRecommend()">更多推荐<I.chevronRight /></button>
       </div>
     </template>
 
@@ -114,4 +112,6 @@ async function addRecommended(r: { url: string }) {
 }
 .chip:hover { background: var(--bg-selected); color: var(--accent-deep); border-color: transparent; }
 .chip:active { background: var(--bg-active); }
+.chip-more { display: inline-flex; align-items: center; gap: 2px; color: var(--accent-deep); border-color: var(--accent-soft); background: var(--accent-soft); font-weight: 600; }
+.chip-more svg { font-size: 13px; }
 </style>

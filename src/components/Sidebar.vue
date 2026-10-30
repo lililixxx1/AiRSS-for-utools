@@ -5,6 +5,7 @@ import { useSettingsStore } from "../stores/settings";
 import { useUiStore } from "../stores/ui";
 import { I } from "./icons";
 import { hostOf, firstChar } from "../lib/format";
+import { RECOMMEND_ALL } from "../lib/recommend";
 import type { Feed } from "../types";
 import EditFeedModal from "./EditFeedModal.vue";
 
@@ -224,6 +225,14 @@ watch(collapsed, (c) => {
 watch(autoNarrow, (n) => {
   if (!n) ui.sbDrawer = false;
 });
+/** 推荐页入口：覆盖内容列；抽屉态顺手收抽屉 */
+function openRecommend() {
+  ui.openRecommend();
+  navFold();
+}
+/** 推荐源总数（入口右上的数字，来自共享清单，避免与推荐页两处口径分叉） */
+const recommendTotal = RECOMMEND_ALL.length;
+
 /** 抽屉内的导航动作（选源/分类/标签/统计/进设置）完成后收抽屉 */
 function navFold() {
   if (ui.sbDrawer) ui.sbDrawer = false;
@@ -295,6 +304,22 @@ function navFold() {
         <span>订阅源</span>
         <button class="icon-btn add-btn" aria-label="添加订阅" @click="ui.modal = { type: 'addFeed' }"><I.plus /></button>
       </div>
+      <!-- 推荐订阅入口（v1.9）：固定贴在「订阅源」标题下、列表之上——不随订阅数下沉；
+           设置可关闭（recommendEnabled）；折叠轨退化为图标钮，保证入口仍可达 -->
+      <button
+        v-if="settings.recommendEnabled"
+        class="rec-entry"
+        :class="{ on: ui.view === 'recommend', rail: collapsed }"
+        :title="collapsed ? '推荐订阅' : '推荐订阅：精选源，点开可一键订阅'"
+        :aria-label="'推荐订阅，共 ' + recommendTotal + ' 个精选源'"
+        @click="openRecommend"
+      >
+        <I.sparkle />
+        <template v-if="!collapsed">
+          <span class="rec-entry-label">推荐订阅</span>
+          <span class="rec-entry-sub num">{{ recommendTotal }}</span>
+        </template>
+      </button>
       <div class="feed-list" role="list">
         <div
           v-for="(f, i) in data.feeds"
@@ -493,6 +518,29 @@ html[data-theme="dark"] .rail-search-panel { background: var(--bg-elevated); }
 .add-btn { background: var(--accent); color: var(--accent-ink); width: 26px; height: 26px; }
 .add-btn:hover { background: var(--accent-hover); }
 .add-btn:active { background: var(--accent-active); } /* 主按钮变体按下走 accent-active（C1） */
+
+/* 推荐订阅入口（v1.9）：accent-soft 底 + accent-deep 字，与普通订阅行区分「这是一扇门而非一个源」；
+   高度对齐 feed-item 的 32 行高节奏；折叠轨退化为 40×40 图标钮（轨宽 64，居中对齐） */
+.rec-entry {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  min-height: 32px; padding: 5px 10px; margin: 0 0 4px;
+  border: 1px solid transparent; border-radius: var(--r-md);
+  background: var(--accent-soft); color: var(--accent-deep);
+  font-family: inherit; font-size: 13px; font-weight: 600;
+  cursor: pointer; text-align: left;
+  transition: border-color var(--t-fast) var(--ease-out), background var(--t-fast) var(--ease-out);
+}
+.rec-entry:hover { border-color: var(--accent-strong); }
+.rec-entry:active { background: var(--bg-selected); }
+.rec-entry:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.rec-entry.on { border-color: var(--accent-strong); }
+.rec-entry svg { font-size: 14px; flex-shrink: 0; }
+.rec-entry-label { flex: 1; min-width: 0; }
+.rec-entry-sub { font-size: 11px; font-weight: 600; color: var(--accent-deep); opacity: 0.75; }
+.rec-entry.rail {
+  width: 40px; height: 40px; min-height: 0; margin: 2px auto 8px;
+  padding: 0; justify-content: center; font-size: 15px;
+}
 
 .feed-item {
   position: relative;

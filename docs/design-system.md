@@ -324,6 +324,16 @@
 - **sunrise（资讯类）**：`radial-gradient(60% 60% at 50% 115%, #FDBA74 0%, #F97316 35%, transparent 70%), linear-gradient(180deg, #C2410C, #7C2D12)`，中央偏下标签文字。
 - 渐变内文字为装饰性（豁免对比度），但实际 ≥4.5。深浅主题同图（按图像处理，不随主题反色）。
 
+### 4.10 推荐订阅页（v1.9，RecommendView）
+
+覆盖内容列，层级与设置页一致（`position:absolute; inset:0; z-index:--z-reader`），顶部 52px 标题栏（左「返回」ghost 按钮 + 16px/650 标题 + 右「已订 N / 12」12px 计数，计数 >0 时 `--accent-deep`），下方滚动区：
+
+- 说明行：12px `--text-3`，max-width 620 居中，「点订阅先走发现确认」。
+- 分组卡：与设置页 `.st-group` 同规格（620 宽、r-lg、1px `--border`、`--shadow-1`），组名 13px/650 `--text-2`。
+- 源行（整行是一个 button）：标题 14px/600 `--text-1` + 描述 12px/1.6 `--text-2` 两行截断（`.clamp-2`）+ URL 11px `--text-3`；右侧胶囊动作 26px 高、r-full、1px `--border-strong`，行 hover 时变 `--accent-soft` 底 + `--accent-deep` 字。
+- 已订阅行：整行 opacity .72，标题右侧「✓已订阅」11px/600 `--accent-deep`，胶囊改虚线边框 + 文案「查看」——**点击语义变为跳到该源列表**（不再重复订阅）。
+- 入口三处同源：侧栏「订阅源」标题下（`--accent-soft` 底 + `--accent-deep` 字，折叠轨为 40×40 图标钮）、空态第 5 个芯片「更多推荐 ›」、设置页「外观 · 推荐订阅入口」开关。
+
 ---
 
 ## 5. 组件规格

@@ -7,11 +7,14 @@ import { useThemeStore } from "../stores/theme";
 import { useUiStore } from "../stores/ui";
 import { I } from "./icons";
 import DropdownSelect from "./DropdownSelect.vue";
+import { RECOMMEND_ALL } from "../lib/recommend";
 
 const settings = useSettingsStore();
 const data = useDataStore();
 const ui = useUiStore();
 const theme = useThemeStore();
+/** 推荐源总数（与侧栏入口、推荐页同源，避免三处口径漂移） */
+const recommendTotal = RECOMMEND_ALL.length;
 /** 版本号（vite define 从 package.json 注入；模板内直接用全局常量 vue-tsc 不认，经 script 暴露） */
 const APP_VERSION = __APP_VERSION__;
 
@@ -195,6 +198,21 @@ function openRepo() {
             <button :class="{ on: settings.viewMode === 'card' }" @click="settings.set('viewMode', 'card')">卡片</button>
             <button :class="{ on: settings.viewMode === 'list' }" @click="settings.set('viewMode', 'list')">列表</button>
           </div>
+        </div>
+        <div class="st-row">
+          <div>
+            <span class="st-label">推荐订阅入口</span>
+            <p class="st-note">在侧栏「订阅源」下方显示推荐入口（精选 {{ recommendTotal }} 个已实测可订阅的源）；关闭只隐藏入口，已订阅的源不受影响</p>
+          </div>
+          <button
+            class="switch"
+            :class="{ on: settings.recommendEnabled }"
+            role="switch"
+            :aria-checked="settings.recommendEnabled"
+            @click="settings.set('recommendEnabled', !settings.recommendEnabled)"
+          >
+            <span class="dot"></span>
+          </button>
         </div>
       </div>
 

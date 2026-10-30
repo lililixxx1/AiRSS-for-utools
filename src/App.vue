@@ -4,6 +4,7 @@ import Sidebar from "./components/Sidebar.vue";
 import ArticleFlow from "./components/ArticleFlow.vue";
 import ReaderPanel from "./components/ReaderPanel.vue";
 import SettingsView from "./components/SettingsView.vue";
+import RecommendView from "./components/RecommendView.vue";
 import AddFeedModal from "./components/AddFeedModal.vue";
 import ComboboxInput from "./components/ComboboxInput.vue";
 import { I } from "./components/icons";
@@ -148,6 +149,10 @@ function backLadder(): boolean {
     ui.closeReader();
     return true;
   }
+  if (ui.view === "recommend") {
+    ui.view = "main"; // 推荐页返回列表（与设置页同级覆盖层，⌫ 一级退出）
+    return true;
+  }
   if (ui.view === "settings") {
     ui.view = "main";
     return true;
@@ -186,6 +191,9 @@ function onKeydown(e: KeyboardEvent) {
     return;
   }
   if (typing || ui.modal) return;
+
+  // 推荐页是整幅覆盖层：列表导航键（j/k/Enter/m/s）不能穿透到背后的列表（设置页行为保持原样）
+  if (ui.view === "recommend") return;
 
   const list = data.filtered;
   if (!list.length) return;
@@ -242,6 +250,7 @@ onMounted(() => {
   window.addEventListener("airss-mock-view", (e) => {
     const v = (e as CustomEvent).detail;
     if (v === "settings") ui.view = "settings";
+    else if (v === "recommend") ui.view = "recommend";
     else if (v === "addfeed") ui.modal = { type: "addFeed" };
     else if (v === "reader" && data.filtered[0]) {
       const it = data.filtered[0];
@@ -265,6 +274,7 @@ onBeforeUnmount(() => {
       <ArticleFlow />
       <ReaderPanel v-if="ui.view === 'reader' && !ui.detached" />
       <SettingsView v-if="ui.view === 'settings' && !ui.detached" />
+      <RecommendView v-if="ui.view === 'recommend' && !ui.detached" />
     </div>
 
     <!-- 分离窗第三栏：阅读常驻 -->
@@ -276,6 +286,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
     <SettingsView v-if="ui.view === 'settings' && ui.detached" />
+    <RecommendView v-if="ui.view === 'recommend' && ui.detached" />
   </div>
 
   <!-- 添加订阅弹层（进出场走全局 modal Transition 类，PLAN-POLISH A1） -->

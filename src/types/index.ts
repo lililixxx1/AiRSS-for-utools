@@ -89,6 +89,7 @@ export interface Settings {
   aiAutoCount: 0 | 1 | 3 | 5; // 自动摘要范围（v1.2）：0=关闭自动(逐篇手动AI按钮) 1=仅当前 3/5=向下连续预取
   muteWords: string[]; // 静音词（PLAN-V1.3 B；多词 OR 任一命中即从列表剔除，计数不剔除）
   highlightWords: string[]; // 高亮词（B；与搜索词合并进 hlTerms，3 词上限由 highlightSegments 决定）
+  recommendEnabled: boolean; // 侧栏「订阅源」下方的推荐入口（v1.9；关闭即隐藏入口，推荐页仍可由空态进入）
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -107,6 +108,7 @@ export const DEFAULT_SETTINGS: Settings = {
   aiAutoCount: 0,
   muteWords: [],
   highlightWords: [],
+  recommendEnabled: true,
 };
 
 /** 发现管线的候选源；summaryOnly：发现期启发式判定该源只带摘要（true/false/null=无信号，驱动「抓取全文」智能默认）。

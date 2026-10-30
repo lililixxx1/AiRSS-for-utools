@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 
-export type ViewName = "main" | "reader" | "settings";
+export type ViewName = "main" | "reader" | "settings" | "recommend";
 export type ModalState =
   | null
   | { type: "addFeed"; presetUrl?: string }
@@ -46,6 +46,10 @@ export const useUiStore = defineStore("ui", {
     },
     openSettings() {
       this.view = "settings";
+    },
+    /** 推荐订阅页（v1.9）：覆盖内容列，与设置页同层；入口在侧栏「订阅源」下方，可在设置关闭 */
+    openRecommend() {
+      this.view = "recommend";
     },
     toast(text: string, kind: "info" | "error" = "info") {
       const t = { id: toastSeq++, text, kind };
