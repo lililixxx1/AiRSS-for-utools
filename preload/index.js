@@ -38,7 +38,8 @@ window.airss = {
   // ---- 订阅发现与抓取 ----
   feed: {
     discover: feedSvc.discoverFeed,
-    fetch: feedSvc.fetchFeed,
+    // 公开版本剥掉内部复用的 raw html（安全基线：渲染层不接触未消毒 HTML；发现管线内部仍用 fetchFeed）
+    fetch: feedSvc.fetchFeedPublic,
     normalizeUrl: feedSvc.normalizeUrl,
   },
 

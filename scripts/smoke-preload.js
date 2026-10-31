@@ -7,7 +7,7 @@ const path = require("path");
 const PRELOAD = path.join(__dirname, "..", "preload");
 
 const { sanitizeContent, makeSummary, extractCover, readingMinutes, htmlToText } = require(path.join(PRELOAD, "services/article.js"));
-const { parseFeedXml, decodeBuffer, looksLikeFeedXml, looksSummaryOnly, looksExternalLinks } = require(path.join(PRELOAD, "services/feed.js"));
+const { parseFeedXml, decodeBuffer, looksLikeFeedXml, looksSummaryOnly, looksExternalLinks, fetchFeed, fetchFeedPublic, discoverFeed, pathFeedCandidates } = require(path.join(PRELOAD, "services/feed.js"));
 const { parseOpml, buildOpml } = require(path.join(PRELOAD, "services/opml.js"));
 const { nodeFetch } = require(path.join(PRELOAD, "services/http.js"));
 const iconv = require(path.join(PRELOAD, "node_modules/iconv-lite"));
@@ -272,6 +272,94 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     const real = await parseFeedXml(xml2);
     ok("解析出条目（" + real.items.length + " 篇）", real.items.length > 0);
     console.log("  · " + real.meta.title + " | " + real.items[0].title.slice(0, 30) + "…");
+
+    // ---- 发现管线：复用首抓 body（F2）/ 页面相对候选 / 不可达声明并发回退（2026-10 优化）----
+    console.log("[discover] 二次抓取复用 + 页面相对候选（本地 server）");
+    {
+      const http = require("http");
+      const RSS = '<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0"><channel><title>发现复用测试源</title><link>http://127.0.0.1/x</link>' +
+        '<item><title>条目一</title><link>http://127.0.0.1/x/a</link><description>凑一点正文字数的内容。</description></item></channel></rss>';
+      let hits = 0;
+      const server = http.createServer((req, res) => {
+        if (req.url === "/") {
+          hits += 1;
+          res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+          res.end('<html><head><title>首页</title><link rel="alternate" type="application/rss+xml" href="/feed.xml" title="RSS"></head><body>标记文本 MARKER-REDISCOVER</body></html>');
+        } else if (req.url === "/feed.xml") {
+          res.writeHead(200, { "content-type": "application/rss+xml; charset=utf-8" });
+          res.end(RSS);
+        } else if (req.url === "/redir") {
+          res.writeHead(302, { location: "/blog/" });
+          res.end();
+        } else if (req.url === "/blog/") {
+          res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+          res.end('<html><head><title>blog</title><link rel="alternate" type="application/rss+xml" href="/missing.xml" title="RSS"></head><body>BLOG</body></html>');
+        } else if (req.url === "/blog/atom.xml") {
+          res.writeHead(200, { "content-type": "application/rss+xml; charset=utf-8" });
+          res.end(RSS);
+        } else if (req.url === "/nod/") {
+          res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+          res.end('<html><head><title>nod</title></head><body>NOD</body></html>');
+        } else if (req.url === "/nod/atom.xml") {
+          res.writeHead(200, { "content-type": "application/rss+xml; charset=utf-8" });
+          res.end(RSS);
+        } else if (req.url === "/slow/") {
+          res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+          res.end('<html><head><title>slow</title><link rel="alternate" type="application/rss+xml" href="/slow-feed.xml" title="RSS"></head><body>SLOW</body></html>');
+        } else if (req.url === "/slow/atom.xml") {
+          res.writeHead(200, { "content-type": "application/rss+xml; charset=utf-8" });
+          res.end(RSS);
+        } else if (req.url === "/slow-feed.xml") {
+          /* 故意不响应：模拟 feedburner 类不可达声明源，验证本地候选并行胜出 */
+        } else if (req.url === "/prio/") {
+          res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+          res.end('<html><head><title>prio</title><link rel="alternate" type="application/rss+xml" href="/prio-feed.xml" title="RSS"></head><body>PRIO</body></html>');
+        } else if (req.url === "/prio-feed.xml") {
+          res.writeHead(200, { "content-type": "application/rss+xml; charset=utf-8" });
+          res.end(RSS);
+        } else if (req.url === "/prio/atom.xml") {
+          setTimeout(() => {
+            res.writeHead(200, { "content-type": "application/rss+xml; charset=utf-8" });
+            res.end(RSS);
+          }, 800); // 慢于声明源：验证声明优先窗口
+        } else {
+          res.writeHead(404);
+          res.end();
+        }
+      });
+      await new Promise((r) => server.listen(0, "127.0.0.1", r));
+      const base = "http://127.0.0.1:" + server.address().port + "/";
+      try {
+        const direct = await fetchFeed(base, { timeout: 5000 });
+        ok("fetchFeed(HTML) 判非 feed 且保留 body", direct.status === "error" && direct.error === "NOT_FEED_XML" && /MARKER-REDISCOVER/.test(direct.html || ""));
+        const pub = await fetchFeedPublic(base, { timeout: 5000 });
+        ok("公开 fetch 不暴露 raw html（安全基线）", pub.status === "error" && pub.error === "NOT_FEED_XML" && !("html" in pub));
+        hits = 0; // 复位计数：下面断言的是 discover 期间的增量
+        const found = await discoverFeed(base);
+        ok("discoverFeed 经 <link> 声明找到 feed", found.found === true && found.candidates.length === 1 && found.candidates[0].itemCount >= 1);
+        ok("discover 复用首抓 body，首页未二次请求（未修复时 hits=2）", hits === 1);
+
+        ok("页面相对候选存在（/blog/ 与 /blog）", pathFeedCandidates(base + "blog/").includes(base + "blog/atom.xml") && pathFeedCandidates(base + "blog").includes(base + "blog/atom.xml"));
+        const blog = await discoverFeed(base + "blog/");
+        ok("声明源不可达时回退 /blog/atom.xml", blog.found === true && blog.candidates[0].url === base + "blog/atom.xml");
+        const redir = await discoverFeed(base + "redir");
+        ok("重定向落地路径参与页面相对候选", redir.found === true && redir.candidates[0].url === base + "blog/atom.xml");
+        const nod = await discoverFeed(base + "nod/");
+        ok("无声明时也探页面相对候选", nod.found === true && nod.candidates[0].url === base + "nod/atom.xml");
+
+        const t0 = Date.now();
+        const slow = await discoverFeed(base + "slow/");
+        const slowMs = Date.now() - t0;
+        ok("声明源挂起时本地候选并行胜出（不等 8s）", slow.found === true && slow.candidates[0].url === base + "slow/atom.xml" && slowMs < 4500);
+        console.log("  · 挂起声明源发现耗时 " + slowMs + "ms");
+
+        const prio = await discoverFeed(base + "prio/");
+        ok("声明源可达时优先于页面相对候选", prio.found === true && prio.candidates[0].url === base + "prio-feed.xml");
+      } finally {
+        server.closeAllConnections(); // keep-alive 空闲连接会拖住事件循环（smoke 成功路径无 exit(0)）
+        server.close();
+      }
+    }
 
     console.log("\n全部通过：" + pass + " 项");
   })().catch((e) => {

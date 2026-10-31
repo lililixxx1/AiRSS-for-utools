@@ -2,6 +2,8 @@
  * feed.js — 订阅发现管线 + 抓取解析
  *
  * 发现管线（PLAN §5.2）：校验 → RSS/Atom 直判 → <link rel=alternate> 探测 → 常见路径探测
+ * （2026-10 优化：页面相对路径优先、有界并发；非根路径页的声明源 300ms 内不应答即并行探测
+ *  本地候选，防 feedburner 类不可达声明把发现拖到 8s 超时——见 docs/PLAN-DISCOVER-FAST.md）
  * 抓取（PLAN §5.1）：ETag/If-Modified-Since 条件请求；304 直接返回不解析
  */
 const { nodeFetch } = require("./http.js");
@@ -17,6 +19,13 @@ const parser = new Parser({
 });
 
 const COMMON_PATHS = ["/feed", "/rss", "/atom.xml", "/feed.xml", "/index.xml", "/rss.xml"];
+// 发现期探测预算：路径候选 5s；声明源保留 8s（慢源兼容），但只给 300ms 优先窗口——
+// 正常源通常 <300ms 应答，超窗仍未回说明可能不可达，此时并行探测页面相对候选
+// （/blog/ → /blog/atom.xml），有界并发 3 防把站点打成小型压测。
+const DISCOVER_PROBE_MS = 5000;
+const DISCOVER_DECLARED_MS = 8000;
+const DISCOVER_DECLARED_GRACE_MS = 300;
+const DISCOVER_CONCURRENCY = 3;
 
 /** 发现期智能默认阈值：与 extract.js FULLTEXT_MIN_CHARS 同值（rich 守卫判定线）——
  *  低于此线的源只带摘要，打开文章时抓原文才有增量 */
@@ -176,7 +185,9 @@ async function fetchFeed(feedUrl, cond = {}) {
   if (res.status === 304) return { status: "not_modified" };
 
   const xml = decodeBuffer(res.body, res.headers["content-type"]);
-  if (!looksLikeFeedXml(xml)) return { status: "error", error: "NOT_FEED_XML" };
+  // html/finalUrl 仅供 discoverFeed 内部复用（免二次抓取同页 + 重定向后按落地路径找 feed），
+  // T-11/安全基线：不入日志、不进渲染层（公开入口走 fetchFeedPublic 剥离）
+  if (!looksLikeFeedXml(xml)) return { status: "error", error: "NOT_FEED_XML", html: xml, finalUrl: res.url };
   try {
     const { meta, items } = await parseFeedXml(xml, feedUrl);
     return {
@@ -199,9 +210,93 @@ function normalizeUrl(input) {
   return s;
 }
 
+/** 渲染层公开抓取结果：剥掉仅供 discoverFeed 内部复用的 raw html。
+ *  安全基线（AGENTS「双道信任模型」）：原始 HTML 只允许留在 preload——`airss.feed.fetch`
+ *  直接暴露 fetchFeed 会把未消毒远程 HTML 递给渲染层，成为注入隐患（2026-10 复盘加）。 */
+async function fetchFeedPublic(url, cond = {}) {
+  const r = await fetchFeed(url, cond);
+  if (r && (Object.prototype.hasOwnProperty.call(r, "html") || Object.prototype.hasOwnProperty.call(r, "finalUrl"))) {
+    const out = { ...r };
+    delete out.html;
+    delete out.finalUrl;
+    return out;
+  }
+  return r;
+}
+
+/** 页面相对 feed 候选（/blog/ → /blog/atom.xml；无尾斜杠的 /blog 也视作目录；根路径返回 []） */
+function pathFeedCandidates(pageUrl) {
+  let u;
+  try {
+    u = new URL(pageUrl);
+  } catch (_) {
+    return [];
+  }
+  const pathname = u.pathname || "/";
+  if (pathname === "/") return [];
+  const bases = new Set();
+  const dir = pathname.endsWith("/") ? pathname : pathname.replace(/[^/]*$/, "");
+  if (dir && dir !== "/") bases.add(dir.replace(/\/$/, ""));
+  // /blog（无尾斜杠、末段无扩展名）本身就是目录语义：同时探测 /blog/feed 等
+  const lastSeg = pathname.split("/").filter(Boolean).pop() || "";
+  if (!pathname.endsWith("/") && lastSeg && !lastSeg.includes(".")) bases.add(pathname);
+  const out = [];
+  for (const base of bases) for (const p of COMMON_PATHS) out.push(u.origin + base + p);
+  return out;
+}
+
+/**
+ * 有界并发探测：按传入顺序启动（并发 ≤ limit），首个成功即返回；全失败返回按完成顺序的 tried。
+ * @param {{url:string,label:string}[]} entries
+ * @returns {Promise<{winner:{url:string,probe:object,label:string}|null, failed:{path:string,result:string}[]}>}
+ */
+async function probeFirst(entries, timeout = DISCOVER_PROBE_MS, limit = DISCOVER_CONCURRENCY) {
+  const failed = [];
+  if (!entries.length) return { winner: null, failed };
+  return new Promise((resolve) => {
+    let next = 0;
+    let active = 0;
+    let done = false;
+    const launch = () => {
+      if (done) return;
+      while (active < limit && next < entries.length) {
+        const entry = entries[next++];
+        active += 1;
+        Promise.resolve()
+          .then(() => fetchFeed(entry.url, { timeout }))
+          .then((probe) => {
+            if (probe && probe.status === "ok") {
+              if (!done) {
+                done = true;
+                resolve({ winner: { url: entry.url, probe, label: entry.label }, failed: failed.slice() });
+              }
+              return;
+            }
+            failed.push({ path: entry.label, result: (probe && probe.error) || "PROBE_FAILED" });
+          })
+          .catch(() => {
+            failed.push({ path: entry.label, result: "PROBE_FAILED" });
+          })
+          .finally(() => {
+            active -= 1;
+            if (done) return;
+            if (next >= entries.length && active === 0) {
+              done = true;
+              resolve({ winner: null, failed: failed.slice() });
+            } else {
+              launch();
+            }
+          });
+      }
+    };
+    launch();
+  });
+}
+
 /**
  * 发现管线：返回 {found, candidates:[{url,title,itemCount,summaryOnly}], tried:[{path,result}]}
- * 候选按确定性排序：直连 feed > <link> 声明 > 路径探测。summaryOnly：摘要型源启发式结果，
+ * 候选优先级：直连 feed > <link> 声明 > 页面相对路径 > 站点根路径；路径组内有界并发、命中即用
+ * （多个候选可用时取最先响应的等价源）。summaryOnly：摘要型源启发式结果，
  * 渲染层据此预开「抓取全文」（全文型/未知保持关，用户可改）。
  */
 async function discoverFeed(inputUrl) {
@@ -215,44 +310,154 @@ async function discoverFeed(inputUrl) {
   }
   tried.push({ path: "(直连)", result: direct.error });
 
-  // 2) HTML <link rel="alternate"> 声明
+  // 2) HTML <link rel="alternate"> 声明。直连已抓到页面 body（NOT_FEED_XML 附带 html）则直接
+  //    复用，不再对同一 URL 二次抓取——短时重复请求会触发站点限流（2026-10 实测：阮一峰首页
+  //    二抓 8s 超时，发现流程 15.9s 才落失败态）
   let html = "";
-  const page = await nodeFetch(url, { timeout: 8000 });
-  if (page.ok) {
-    html = decodeBuffer(page.body, page.headers["content-type"]);
-    const links = [];
+  let pageUrl = url; // 重定向落地地址：裸域 → /blog/ 这类跳转后，页面相对候选必须按落地路径算
+  if (direct.error === "NOT_FEED_XML" && direct.html) {
+    html = direct.html;
+    pageUrl = direct.finalUrl || url;
+  } else {
+    const page = await nodeFetch(url, { timeout: 8000 });
+    if (page.ok) {
+      html = decodeBuffer(page.body, page.headers["content-type"]);
+      pageUrl = page.url || url;
+    } else {
+      tried.push({ path: "页面抓取", result: page.error });
+    }
+  }
+
+  let origin = "";
+  try {
+    origin = new URL(pageUrl).origin;
+  } catch (_) {
+    origin = "";
+  }
+
+  let declared = [];
+  if (html) {
     const re = /<link[^>]+rel=["']alternate["'][^>]*>/gi;
     let m;
-    while ((m = re.exec(html)) && links.length < 5) {
+    while ((m = re.exec(html)) && declared.length < 5) {
       const tag = m[0];
       if (/type=["']application\/(rss|atom)\+xml["']/i.test(tag)) {
         const hrefM = /href=["']([^"']+)["']/i.exec(tag);
-        if (hrefM) links.push(new URL(hrefM[1], url).toString());
+        if (hrefM) {
+          try {
+            const abs = new URL(hrefM[1], pageUrl).toString();
+            if (abs !== url && abs !== pageUrl) declared.push(abs);
+          } catch (_) {
+            /* 非法 href：跳过单条，不炸整条发现链 */
+          }
+        }
       }
     }
-    for (const link of links) {
-      const probe = await fetchFeed(link, { timeout: 8000 });
-      if (probe.status === "ok") {
-        return { found: true, candidates: [buildCandidate(link, probe.meta, probe.items)], tried: tried.concat([{ path: "<link> 声明", result: link }]) };
+  }
+  declared = [...new Set(declared)];
+
+  // 页面相对候选（/blog/ → /blog/atom.xml）：子路径博客常把 feed 挂在自己目录下，
+  // 用站点根候选（origin + /atom.xml）必然 404——先探本地目录，再回退根路径。
+  const pathCands = pathFeedCandidates(pageUrl).filter((c) => c !== url && c !== pageUrl && !declared.includes(c));
+  const labelOf = (abs) => (origin && abs.startsWith(origin) ? abs.slice(origin.length) || "/" : abs);
+
+  let declaredErrors = [];
+  let pathErrors = [];
+  let winner = null;
+
+  if (declared.length) {
+    let declaredDone = false;
+    let pathStarted = false;
+    let pathPromise = null;
+    const startPath = () => {
+      if (pathStarted) return pathPromise;
+      pathStarted = true;
+      pathPromise = probeFirst(pathCands.map((c) => ({ url: c, label: labelOf(c) })));
+      return pathPromise;
+    };
+    const declaredCore = (async () => {
+      for (const link of declared) {
+        const probe = await fetchFeed(link, { timeout: DISCOVER_DECLARED_MS });
+        if (probe.status === "ok") return { url: link, probe, label: "<link> 声明" };
+        declaredErrors.push({ path: "<link> 声明", result: probe.error || "PROBE_FAILED" });
       }
-      tried.push({ path: "<link> 声明", result: probe.error });
+      return null;
+    })();
+    const declaredP = declaredCore.finally(() => {
+      declaredDone = true;
+    });
+
+    let pathTimer = null;
+    const dRes = declaredP.then((hit) => ({ k: "d", hit, failed: [] }));
+    const pRes = pathCands.length
+      ? new Promise((resolve) => {
+          pathTimer = setTimeout(() => {
+            startPath().then((r) => resolve({ k: "p", hit: r.winner, failed: r.failed }));
+          }, DISCOVER_DECLARED_GRACE_MS);
+        })
+      : null;
+
+    const first = pRes ? await Promise.race([dRes, pRes]) : await dRes;
+    if (pathTimer) clearTimeout(pathTimer);
+    if (first.hit) {
+      winner = first.hit;
+    } else if (first.k === "p") {
+      // 路径先结束（无果）：声明探测可能仍挂在 8s 超时上，等它给出最终答案
+      pathErrors = first.failed;
+      winner = declaredDone ? null : await declaredP;
+    } else {
+      // 声明先失败：路径可能已在跑（>300ms 才失败），否则立刻启动
+      const pr = pathStarted ? await pathPromise : await startPath();
+      pathErrors = pr.failed;
+      winner = pr.winner;
     }
-  } else {
-    tried.push({ path: "页面抓取", result: page.error });
+  } else if (pathCands.length) {
+    const pr = await probeFirst(pathCands.map((c) => ({ url: c, label: labelOf(c) })));
+    pathErrors = pr.failed;
+    winner = pr.winner;
   }
 
-  // 3) 常见路径探测（逐个 5s）
-  const origin = new URL(url).origin;
-  for (const p of COMMON_PATHS) {
-    const cand = origin + p;
-    const probe = await fetchFeed(cand, { timeout: 5000 });
-    if (probe.status === "ok") {
-      return { found: true, candidates: [buildCandidate(cand, probe.meta, probe.items)], tried: tried.concat([{ path: p, result: "feed" }]) };
+  if (winner) {
+    return {
+      found: true,
+      candidates: [buildCandidate(winner.url, winner.probe.meta, winner.probe.items)],
+      tried: tried.concat(declaredErrors, pathErrors, [
+        { path: winner.label, result: winner.label === "<link> 声明" ? winner.url : "feed" },
+      ]),
+    };
+  }
+
+  // 3) 常见路径探测（页面相对未命中后回退站点根；有界并发 3、每个 5s——失败态上限由
+  //    6×5s 串行降到约 10s，推荐源发现不再让用户干等半分钟）
+  const rootCands = origin
+    ? COMMON_PATHS.map((p) => origin + p).filter((c) => c !== url && c !== pageUrl && !declared.includes(c) && !pathCands.includes(c))
+    : [];
+  if (rootCands.length) {
+    const { winner: rootHit, failed } = await probeFirst(rootCands.map((c) => ({ url: c, label: labelOf(c) })));
+    if (rootHit) {
+      return {
+        found: true,
+        candidates: [buildCandidate(rootHit.url, rootHit.probe.meta, rootHit.probe.items)],
+        tried: tried.concat(declaredErrors, pathErrors, failed, [{ path: rootHit.label, result: "feed" }]),
+      };
     }
-    tried.push({ path: p, result: probe.error });
+    tried.push(...declaredErrors, ...pathErrors, ...failed);
+  } else {
+    tried.push(...declaredErrors, ...pathErrors);
   }
 
   return { found: false, candidates: [], tried };
 }
 
-module.exports = { fetchFeed, discoverFeed, normalizeUrl, parseFeedXml, looksLikeFeedXml, decodeBuffer, looksSummaryOnly, looksExternalLinks };
+module.exports = {
+  fetchFeed,
+  fetchFeedPublic,
+  discoverFeed,
+  normalizeUrl,
+  parseFeedXml,
+  looksLikeFeedXml,
+  decodeBuffer,
+  looksSummaryOnly,
+  looksExternalLinks,
+  pathFeedCandidates,
+};

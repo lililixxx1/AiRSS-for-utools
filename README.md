@@ -24,12 +24,12 @@ airss/
 
 ```bash
 npm install               # 渲染层依赖
-cd preload && npm install # preload 依赖（版本锁定 Node16/CJS 兼容）
+cd preload && npm install # preload 依赖（CJS 锁定，兼容 uTools 8.0=Node20 / 7.x=Node16 双宿主）
 cd ..
 npm run dev               # 浏览器开发（mock 层兜底，无需 uTools）
 npm run build             # 构建 dist
 npm run typecheck         # vue-tsc
-node scripts/smoke-preload.js      # preload 冒烟测试（83 项：XSS/GBK/解析/OPML/提取消毒/摘要启发式/站内适配/真实抓取）
+node scripts/smoke-preload.js      # preload 冒烟测试（95 项：XSS/GBK/解析/OPML/提取消毒/摘要启发式/站内适配/真实抓取/发现复用+页面相对候选）
 node scripts/test-db-mock.js       # 数据层+端到端管线测试（74 项：判重/写序/保留清理/级联删除/双前缀搜索/ensureFull 状态机/失败记忆）
 node scripts/check-theme-contrast.js  # 多主题配色守门（warm 快照 + 令牌完整 + 4 配色 × 明暗对比度矩阵）
 python scripts/make-logo.py     # 重新生成 logo
@@ -86,10 +86,16 @@ python scripts/make-logo.py     # 重新生成 logo
 - [ ] ⌫ 逐级返回实机复验（主窗/分离窗）：返回阶梯（模态→抽屉→文内搜索→关阅读→退设置→清搜索）、轮盘/AI 面板/下拉/轨内搜索/文内搜索的 ⌫ 关闭与输入态（空值才关）表现
 - [ ] mainPush 建议位存续规则与 icon 相对路径表现
 - [x] allDocs 万级真实耗时——v1.3 本地实测（`node scripts/bench-search.js`，12000 篇 itemfull+itemfullx 各半）：1.5s 预算仅扫 ~2450 篇（约 20%）即 truncated，全扫推算 ~7s+；**决策：维持预算截断降级（UI 已示「部分扫描」），不开发倒排索引**。实机 IPC 开销另测
-- [ ] 全文提取实机（Node16 宿主内 linkedom/readability require 与运行、真实摘要型源抓取成功率、`FETCH_EMPTY_BODY`/`EXTRACT_TOO_SHORT` 实际占比）
+- [ ] 全文提取实机（7.x Node16 / 8.0 Node20 宿主内 linkedom/readability require 与运行、真实摘要型源抓取成功率、`FETCH_EMPTY_BODY`/`EXTRACT_TOO_SHORT` 实际占比）
 - [ ] 拖拽排序/分类菜单/标签区在实机无边框窗内的交互（指示线定位、⋯ 菜单裁剪）
 - [ ] PLAN-POLISH（v1.8 全站打磨）实机项：modal/dropdown/菜单族进出场动画流畅度（主窗+分离窗）、全局滚动条样式（8px/令牌 thumb）、4 配色 × 明暗的已读卡片标题色与按下态反馈（--text-read/--bg-active 新令牌）
 - [x] utools.ai 特性检测在当前账号环境的表现（2026-09-05 实机验证：接口可用、allAiModels 正常、流式/非流式/abort 均通过；单次生成 6~32s 为服务端耗时）
+- [ ] **uTools 8.0 适配回归**（2026-10-30 落地：reasoning_effort 关思考提速 + dbCryptoStorage 防御 + plugin.json explain/description 双写）：
+  - [x] 机制生效实证（2026-10-30 dev-bridge 实机 uTools 8.0.2）：preload 内 `getAppVersion()` 可用返回 `8.0.2`（无 `major:0` 回落，**无需恒附加策略**）；`utools.ai` 收到的 option 含 `reasoning_effort:"none"`；诊断日志 `ai.call` 带 `effort:"none"`；preload 在 Node20 宿主内零警告装载（CJS 链全通）
+  - [ ] 提速幅度对比：真实摘要/翻译的 ms 较 7.0 时代明显下降（dev-bridge stub 引擎零计费只能验机制，需真发 AI 调用）；7.x 宿主回归应无该字段（故意不加）
+  - [x] dbCryptoStorage 8.0 存活性（2026-10-30 dev-bridge 实机：写入 `{ok:true}` / 回读 `true` / 清除全通——运行时未下线）
+  - [ ] Chromium 132 三旧坑复验：全局滚动条令牌样式（121+ 标准属性互斥）、侧栏折叠网格过渡、reduced-motion 布局楔死（`transition-property:none` 方案）——UI 渲染层，桥测不到，需人工回归
+  - [ ] plugin.json `explain`+`description` 双字段在开发者工具加载与市场侧的接受度
 
 ## 开源协议
 

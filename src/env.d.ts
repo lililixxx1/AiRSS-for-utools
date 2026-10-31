@@ -64,7 +64,8 @@ interface AirssServices {
   };
   feed: {
     discover(url: string): Promise<{ found: boolean; candidates: import("./types/index").FeedCandidate[]; tried: import("./types/index").TriedPath[] }>;
-    fetch(url: string, cond?: any): Promise<any>;
+    /** 公开抓取：返回 status/error/meta/items 等结构；内部复用的 raw html 已剥除（安全基线） */
+    fetch(url: string, cond?: any): Promise<{ status: string; error?: string; meta?: any; items?: any[]; etag?: string; lastModified?: string }>;
     normalizeUrl(url: string): string;
   };
   article: {
@@ -119,7 +120,7 @@ interface AirssServices {
     }>;
     getConfig(): { enabled: boolean; engine: "utools" | "byok"; model: string; modelLabel: string; byokBaseUrl: string; byokModel: string; byokAllowHttp: boolean };
     saveConfig(patch: Partial<ReturnType<AirssServices["ai"]["getConfig"]>>): void;
-    setByokKey(key: string): void;
+    setByokKey(key: string): { ok: boolean; error?: string };
     hasByokKey(): boolean;
   };
   log: {
