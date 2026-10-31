@@ -216,6 +216,13 @@ export const useDataStore = defineStore("data", {
       // D2 排序口径：order 升序（首次拖拽前全员无 order → 保持 createdAt 序；此后新增源无 order 排末尾）
       this.feeds = feeds.sort((a: Feed, b: Feed) => (a.order ?? Infinity) - (b.order ?? Infinity) || a.createdAt - b.createdAt);
       this.items = items.sort((a: Item, b: Item) => b.pubTs - a.pubTs);
+      // feed.unreadCount 以 items 实态实算覆写（PLAN-FIX-UNREAD-REDISCOVER F1）：db 底数在
+      // setRead/markManyRead 后陈旧（只写 item 不写 feed），重启/新增订阅触发 loadAll 时曾把
+      // 徽标拉回旧值。getFeeds 的唯一消费方就是 loadAll——覆写后陈旧值不再上屏；db 侧仍由
+      // 下次刷新 ingestFeed / 云同步 recalcUnread 对齐，不为高频单篇阅读加重算落库。
+      const unreadBy = new Map<string, number>();
+      for (const it of items) if (!it.read) unreadBy.set(it.feedKey, (unreadBy.get(it.feedKey) || 0) + 1);
+      for (const f of this.feeds) f.unreadCount = unreadBy.get(f._id) || 0;
       this.loaded = true;
     },
 
@@ -417,9 +424,9 @@ export const useDataStore = defineStore("data", {
       // 内存同步即终态，不 loadAll（PLAN-PERF-2 §2.1）：省万级全量快照 IPC + reactive 重建。
       // 安全：渲染层无直写 item 路径（setRead/setStarred/enrich 回写均 preload get-fresh 再写，
       // 内存 _rev 过期无影响）；内存推 ≠ 落库——db 侧 unreadCount 由下次刷新/云同步
-      // recalcUnread 对账（陈旧窗口与现状一致且自愈）。但 feed.unreadCount 不能「减 n」式推：
-      // db 侧底数可能陈旧虚高（旧瑕疵：loadAll 曾把它拉回覆盖本地推），全部已读后徽标会残留——
-      // 标记后一遍实算每源未读数直接赋值（与 categories 同口径，2026-09-09 回归实锤修正）。
+      // recalcUnread 对账；loadAll 现也以 items 实算覆写徽标（F1），陈旧底数不再上屏。
+      // feed.unreadCount 不能「减 n」式推：底数可能陈旧虚高，全部已读后徽标会残留——
+      // 标记后一遍实算每源未读数直接赋值（与 categories/loadAll 同口径，2026-09-09 回归实锤修正）。
       const idSet = new Set(ids); // ids 来自 filtered 视图：必须成员判定，绝不能全量置
       const unreadByFeed = new Map<string, number>();
       for (const x of this.items) {
