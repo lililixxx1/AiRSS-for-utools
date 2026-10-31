@@ -149,6 +149,15 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
       const aigcNoUrl = await parseFeedXml(AIGC_RSS); // 无 feedUrl：适配器不介入（通用链路行为不变）
       ok("aigc：无 feedUrl 时引流行保留（适配器按站点生效）", aigcNoUrl.items[0].contentHtml.includes("订阅"));
       ok("aigc：其它站不命中", adapters.applyFeedAdapter("https://other.example/feed", { rawBody: "a\n📮 全文 RSS 订阅 https://x.y" }) === null);
+      // 整条只有引流行（2026-10-31 宿主实测该源真实存在）：正文与摘要都应留空，不能把广告回填
+      const AIGC_ONLY_PROMO = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>AIGC NEWS</title>
+<link>https://aigcnews.cn/</link><description>d</description>
+<item><title>只有广告的条目</title><link>https://www.huxiu.com/moment/2.html</link><guid>a2</guid>
+<description>📮 全文 RSS（中文译文 · 完整归档），注册登录即可免费订阅：https://aigcnews.cn/subscriptions</description></item>
+</channel></rss>`;
+      const onlyPromo = await parseFeedXml(AIGC_ONLY_PROMO, "https://aigcnews.cn/api/feed.xml");
+      ok("aigc：整条只有引流行 → 正文为空（不是回退成广告）", onlyPromo.items[0].contentHtml === "");
+      ok("aigc：整条只有引流行 → 摘要也为空（卡片不显示广告）", onlyPromo.items[0].summaryText === "");
 
       // 摘要口径：WordPress 系「description=编辑手写摘要 + content:encoded=全文」必须保留编辑摘要
       const WP_XML = `<?xml version="1.0"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>WP 源</title><link>https://blog.example</link><description>d</description><item><title>文章</title><link>https://blog.example/post/1</link><guid>p1</guid><description>这是编辑手写的摘要（excerpt）。</description><content:encoded><![CDATA[<p>正文第一段，很长很长的正文开头，讲了很多细节。</p><p>第二段。</p>]]></content:encoded></item></channel></rss>`;

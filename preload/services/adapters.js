@@ -79,7 +79,9 @@ const AIGC_PROMO_RE = /^\s*(?:📮|📬|📨|🔔|📢)?\s*(?:全文\s*)?RSS[\s\
 
 /**
  * @param {{rawBody:string, link:string}} item rawBody 是 feed 里的原始 description/content
- * @returns {string|null} 清理后的正文（仍是纯文本/HTML 原形态），null = 不介入
+ * @returns {string|null|undefined} 清理后的正文（仍是纯文本/HTML 原形态）；"" = 整段都是广告、
+ *         正文已被剥空（**必须保留空串**，不能返回 null —— 2026-10-31 宿主实测：该源有若干条目
+ *         description 只有引流行，回退成"没改动"会把广告原样当正文）；null = 不介入
  */
 function cleanAigcNews({ rawBody }) {
   const text = String(rawBody || "");
@@ -88,8 +90,7 @@ function cleanAigcNews({ rawBody }) {
   const lines = text.split(/\n/);
   const kept = lines.filter((line) => !(AIGC_PROMO_RE.test(line) && /https?:\/\//i.test(line)));
   if (kept.length === lines.length) return null; // 没有引流行 → 不改（contentHash 不抖动）
-  const out = kept.join("\n").trim();
-  return out || null;
+  return kept.join("\n").trim(); // 可能是 ""（整条只有广告），由调用方按空正文处理
 }
 
 const FEED_ADAPTERS = [
@@ -109,7 +110,7 @@ const FEED_ADAPTERS = [
  * feed 级清理入口。
  * @param {string} feedUrl 该条目所属 feed 的地址
  * @param {{rawBody?:string, link?:string}} item
- * @returns {string|null} 清理后的正文原形态；null = 无适配/无需改动
+ * @returns {string|null} 清理后的正文原形态；**空串是有效结果**（整条被剥空）；null = 无适配/无需改动
  */
 function applyFeedAdapter(feedUrl, item) {
   const adapter = FEED_ADAPTERS.find((a) => {
@@ -121,7 +122,8 @@ function applyFeedAdapter(feedUrl, item) {
   });
   if (!adapter) return null;
   try {
-    return adapter.clean(item || {}) || null;
+    const out = adapter.clean(item || {});
+    return out == null ? null : String(out); // "" 必须原样保留（见 cleanAigcNews 注释）
   } catch (_) {
     return null; // 适配器异常 = 当没命中，正文保持原样
   }

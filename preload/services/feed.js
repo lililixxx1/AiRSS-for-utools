@@ -143,7 +143,10 @@ async function parseFeedXml(xml, feedUrl = "") {
       pubTs,
       contentHtml,
       contentHash: crypto.createHash("sha256").update(contentHtml || String(raw.title || "")).digest("hex").slice(0, 12),
-      summaryText: makeSummary(bodyChanged ? contentHtml : raw.contentSnippet || contentHtml || raw.title || ""),
+      // 正文被适配器剥空时摘要也保持空（卡片不显示摘要行）：不能回退到 contentSnippet ——
+      // 那正是被剥掉的广告原文（2026-10-31 宿主实测：AIGC NEWS 有整条只有引流行
+      // 的条目，回退会把广告重新当摘要显示）
+      summaryText: bodyChanged ? makeSummary(contentHtml) : makeSummary(raw.contentSnippet || contentHtml || raw.title || ""),
       cover: extractCover(contentHtml),
     });
     if (i % 5 === 4) await new Promise((r) => setTimeout(r, 0));
