@@ -909,6 +909,8 @@ html[data-theme="dark"] .ra-title { font-size: 22px; }
   user-select: text;
 }
 .ra-content :deep(p) { margin-bottom: 0.75em; }
+/* 正文内 h1（源文自带大标题，如橘鸦「AI 早报 日期」）：白名单放行但原先无规则，落 UA 默认 2em 粗体压过 h2 与顶部文章标题，统一收进正文标题阶 */
+.ra-content :deep(h1) { font-size: 1.3em; font-weight: 700; margin: 1em 0 0.5em; }
 .ra-content :deep(h2) { font-size: 1.15em; font-weight: 650; margin: 1em 0 0.5em; }
 .ra-content :deep(h3) { font-size: 1.05em; font-weight: 650; margin: 1em 0 0.5em; }
 .ra-content :deep(blockquote) { border-left: 3px solid var(--accent-strong); padding-left: 14px; color: var(--text-2); margin: 0.75em 0; }

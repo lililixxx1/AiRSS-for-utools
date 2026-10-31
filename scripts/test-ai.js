@@ -3,7 +3,8 @@
  * 覆盖：enrich 流式落库/缓存命中/bypass、abort 原子性（H2）与已产出计额（F4）、
  *       失败降级 error 且旧产物保留、额度分池耗尽、轻量批 JSON 回写与 H4/T-21 守则、
  *       ingest 内容变化清 AI 字段（T-09）、BYOK 端点归一、配额跨日重置、
- *       AI 目录（v1.4）：行协议解析/去重升序/锚点补全/纯内容缓存跨源/B-1 弃写/限幅/T-09 连带清
+ *       AI 目录（v1.4）：行协议解析/去重升序/锚点补全/纯内容缓存跨源/B-1 弃写/限幅/T-09 连带清、
+ *       uTools 8.0 适配：reasoning_effort 关思考（宿主 ≥8 才附加/探测失败回落）、dbCryptoStorage 缺失防御
  * 用法：node scripts/test-ai.js
  */
 const assert = require("assert");
@@ -43,7 +44,7 @@ function makeMockDb() {
 }
 
 // ---- 可编程 fake utools.ai（流式按块吐 + abort 注入 + 快照式/早退/挂起模拟） ----
-const fake = { calls: 0, script: [], fail: null, options: [], snapshot: false, earlyResolve: false, hang: false };
+const fake = { calls: 0, script: [], fail: null, options: [], snapshot: false, earlyResolve: false, hang: false, hostVersion: "8.0.2", hostVersionThrows: false };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function installUtools(db) {
@@ -62,6 +63,11 @@ function installUtools(db) {
       removeItem: (k) => cryptoMap.delete(k),
     },
     allAiModels: async () => [{ id: "m1", label: "模型一", description: "", icon: "", cost: 1 }],
+    // 可编程宿主版本（8.0 适配用例；默认 8.0.2 —— 8.0 起默认模型通常开思考，管线固定关思考提速）
+    getAppVersion() {
+      if (fake.hostVersionThrows) throw new Error("HOST_VERSION_UNAVAILABLE");
+      return fake.hostVersion;
+    },
     ai(option, streamCb) {
       fake.calls += 1;
       fake.options.push(option);
@@ -139,6 +145,17 @@ const today = () => {
     ok("头部失败降级纯摘要", degraded.summary === "没有头部的纯摘要文本。" && !degraded.titleZh && degraded.tags.length === 0);
     const multi = T.parseEnrichOutput("【titleZh】英文题\n【titleNorm】客观题\n【tags】科技\n这是跨行元信息后的摘要。");
     ok("元信息跨行也能解析", multi.titleNorm === "客观题" && multi.tags.join() === "科技" && multi.summary === "这是跨行元信息后的摘要。");
+    // 2026-10-31 宿主实测回归：模型超长 titleNorm 不能被硬切成半个词（"…：百万tok"）
+    const longTitle = T.parseEnrichOutput("【titleZh】x【titleNorm】Anthropic发布Claude Opus 5：百万token上下文窗口【tags】科技\n摘要。");
+    ok("超长 titleNorm 按标点边界截断（不切词）", longTitle.titleNorm.endsWith("…") && !longTitle.titleNorm.includes("tok…") && longTitle.titleNorm !== "Anthropic发布Claude Opus 5：百万tok");
+    ok("截断后长度不超上限（含结尾…恒 ≤30）", longTitle.titleNorm.length <= 30);
+    ok("短 titleNorm 不被改写", T.parseEnrichOutput("【titleZh】x【titleNorm】客观题【tags】科技\n摘要。").titleNorm === "客观题");
+    // clampAiTitle 回退分支 __test 直测（标点边界路径上面已覆盖）
+    const noBound = T.clampAiTitle("深度解读新一代多模态大模型技术演进路线与产业落地实践全景分析报告", 30);
+    ok("无边界标点长题硬截恒 ≤30", noBound.length === 30 && noBound.endsWith("…"));
+    ok("全标点病态输入剥尾削空退为裸省略号（备案：可接受地板行为）", T.clampAiTitle("，".repeat(34), 30) === "…");
+    const cut9 = T.clampAiTitle("一二三四五六七八九，" + "零".repeat(21), 30);
+    ok("边界标点位于第 10 字（cut=9<10）走硬截不取前段", cut9.length === 30 && cut9.startsWith("一二三四五六七八九，"));
     ok("首句截取", T.firstSentence("第一句。第二句") === "第一句");
 
     // v1.2：titleNorm 口径由"噱头客观化"放宽为 AI优化标题（防回归到旧口径文案）
@@ -579,6 +596,59 @@ const today = () => {
     aiSvc.saveConfig({ engine: "utools" });
     aiSvc.setByokKey("");
     ok("清密钥", aiSvc.hasByokKey() === false);
+  }
+
+  console.log("[ai] uTools 8.0 适配：reasoning_effort 关思考 / 加密存储防御");
+  {
+    // generateToc 的 item 存在性检查先于 bypass 分支（NOT_FOUND 早退），三个用例各落一个 item
+    const { db } = makeMockDb();
+    global.utools.db = db;
+    for (const id of ["item:u8:1", "item:u7:1", "item:u0:1"]) {
+      await db.promises.put({ _id: id, feedKey: "feed:u8", title: "宿主适配", titleDisplay: "宿主适配", aiStatus: "none" });
+    }
+    const paras0 = [{ idx: 0, head: "首段标题", text: "用于直达引擎的段落文本，长度超过十个字符。" }];
+    const lastOpt = () => fake.options[fake.options.length - 1];
+
+    // ① 宿主 8：固定附加 reasoning_effort=none（8.0 默认模型通常开思考，机械文本处理官方建议关思考提速）
+    fake.hostVersion = "8.0.2";
+    fake.hostVersionThrows = false;
+    fake.script = ["[[0]]第一章"];
+    T.resetHostMajor(); // hostMajor 有 memoize，逐例必须复位，否则用例顺序决定结果
+    const r8 = await aiSvc.generateToc("item:u8:1", paras0, { bypass: true });
+    ok("宿主 8：option 附加 reasoning_effort=none", r8.ok && lastOpt().reasoning_effort === "none");
+
+    // ② 宿主 7.4：不附加（7.x 不认识该参，行为与旧版一致）
+    fake.hostVersion = "7.4.0";
+    fake.script = ["[[0]]第一章"];
+    T.resetHostMajor();
+    const r7 = await aiSvc.generateToc("item:u7:1", paras0, { bypass: true });
+    ok("宿主 7：option 不含 reasoning_effort", r7.ok && !("reasoning_effort" in lastOpt()));
+
+    // ③ getAppVersion 不可用（preload 域抛错/缺失）：回落为不附加，零风险
+    fake.hostVersionThrows = true;
+    fake.script = ["[[0]]第一章"];
+    T.resetHostMajor();
+    const r0 = await aiSvc.generateToc("item:u0:1", paras0, { bypass: true });
+    ok("版本探测失败：option 不含 reasoning_effort（回落）", r0.ok && !("reasoning_effort" in lastOpt()));
+
+    // 复位默认宿主形态，防串扰后续块
+    fake.hostVersionThrows = false;
+    fake.hostVersion = "8.0.2";
+    T.resetHostMajor();
+
+    // ④ dbCryptoStorage 缺失（8.0 文档已移除该章，运行时未说明下线）：setByokKey 显式失败而非抛进调用方
+    const savedCrypto = global.utools.dbCryptoStorage;
+    try {
+      delete global.utools.dbCryptoStorage;
+      const sv = aiSvc.setByokKey("sk-x");
+      ok("加密存储缺失：setByokKey 返回 {ok:false} 不抛", !!sv && sv.ok === false && sv.error === "CRYPTO_STORAGE_UNAVAILABLE");
+      ok("hasByokKey 恒 false（getByokKey 既有 try/catch 兜底）", aiSvc.hasByokKey() === false);
+      ok("清空密钥同样显式失败不抛", aiSvc.setByokKey("").ok === false);
+    } finally {
+      global.utools.dbCryptoStorage = savedCrypto; // 保存/恢复：不靠用例排布的运气做隔离
+    }
+    ok("恢复后加密存取正常", aiSvc.setByokKey("sk-y").ok === true && aiSvc.hasByokKey() === true);
+    aiSvc.setByokKey("");
   }
 
   console.log("[log] 诊断日志");

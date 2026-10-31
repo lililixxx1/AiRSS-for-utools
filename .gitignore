@@ -17,3 +17,7 @@ Thumbs.db
 
 # 发布目录（构建产物快照，仅供上架上传）
 release/
+
+# ZCode session artifacts
+.shots/
+.zcode/

@@ -269,7 +269,7 @@
 - 正文区滚动，文章容器 `font-size: var(--reading-fs, 16px); max-width: 75em; margin-inline: auto; padding: 24 24 48`（流式行宽，块级不超容器宽，仅设上限）：
   - 标题 22px/700/1.35 `--text-1`；
   - 元信息行（h32，与标题间距 12）：源名 13px/600 `--accent-deep` + `·` + 时间 12px `--text-3` + `·` + clock 图标 + 阅读时长 12px；行尾 `AI 摘要`（sparkle，v1.2：自动摘要关闭且无摘要时）+ `原文` 幽灵小按钮（external-link 图标，shellOpenExternal 打开）。
-  - 正文 `--reading-fs`（14/16/18/22）· 行高 1.75 · 段距 0.75em · `--text-1`；`h2` 18px/650 上下 1em；`blockquote` 左边框 3px `--accent-strong` + padding-left 14 + 色 `--text-2`（**不用斜体**）；`img` 圆角 8 + `max-height 60vh`；`a` 色 `--accent-deep` 下划线；`code` 底 `--bg-hover` r-sm padding 2 6 mono 0.9em。
+  - 正文 `--reading-fs`（14/16/18/22）· 行高 1.75 · 段距 0.75em · `--text-1`；正文标题阶 `h1` 1.3em≈21px/700、`h2` 18px/650、`h3` 1.05em≈17px/650 上下 1em（h1 为 2026-10-31 补入：源文自带大标题原先无规则落 UA 2em，压过 h2 与文章标题）；`blockquote` 左边框 3px `--accent-strong` + padding-left 14 + 色 `--text-2`（**不用斜体**）；`img` 圆角 8 + `max-height 60vh`；`a` 色 `--accent-deep` 下划线；`code` 底 `--bg-hover` r-sm padding 2 6 mono 0.9em。
 - 底部操作条 h52（粘性，白底 + 顶边框，gap 8）：`已读`切换（check 图标，已读态按钮底 `--bg-selected` 字 `--accent-deep`）/ `收藏`（bookmark，激活实心橙）｜弹簧｜`复制链接`（copy）/ `浏览器打开`（external-link）。全部 ≥28×32 触达。
 
 **分离窗 = 第三栏（弹性 ≥440，常驻，不滑入）**：同结构，标题升 24px，无"返回"按钮（列表与阅读并排；⌫ 走全局逐级返回，分离窗内不关阅读，清搜索为止）。窄面板下行宽按 `100% − 48px` 自然收窄，不做居中留白。

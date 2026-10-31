@@ -30,7 +30,7 @@ const DEFAULT_CATEGORIES = ["科技", "商业", "设计", "开发", "工具", "�
 const DEFAULT_CONFIG = {
   enabled: false, // 默认关闭：设置页显式开启（与渲染层 settings.aiEnabled 联动写穿）
   engine: "utools", // "utools" | "byok"
-  model: "", // 空 = utools.ai 默认 deepseek-v3
+  model: "", // 空 = 不传 model，跟随 uTools 宿主默认模型（API 查不到具体是哪个；7.x 时代实测为 deepseek-v3）
   modelLabel: "", // 所选模型的可读名（allAiModels 的 label；日志显示用，不参与调用）
   byokBaseUrl: "",
   byokModel: "",
@@ -41,6 +41,26 @@ const ut = () => global.utools || window.utools;
 const store = () => ut().dbStorage;
 const cryptoStore = () => ut().dbCryptoStorage;
 const db = () => ut().db.promises;
+
+// 宿主主版本（uTools 8.0 = Electron 34/Chromium 132/Node 20.19.1；7.x = Node16）。
+// memo 哨兵必须用 null 不能用 falsy 判定：0（探测失败/不可用）是合法缓存值；
+// 整句取值包 try：纯 Node 测试上下文无 window，裸引用会 ReferenceError。
+let hostMajorCache = null;
+function hostMajor() {
+  if (hostMajorCache !== null) return hostMajorCache;
+  try {
+    const v = parseInt(String((global.utools || window.utools).getAppVersion()), 10);
+    hostMajorCache = Number.isFinite(v) ? v : 0;
+  } catch (_) {
+    hostMajorCache = 0;
+  }
+  if (hostMajorCache < 8) {
+    // 7.x 宿主（=7）或 getAppVersion 探测失败（=0）：不附加 reasoning_effort，行为与旧版一致。
+    // debug 一条以便实机区分「故意不加」与「想加没加上」（T-11：只记版本号解析结果）。
+    logger.debug("ai.host", "宿主主版本探测", { major: hostMajorCache });
+  }
+  return hostMajorCache;
+}
 
 // ---------------------------------------------------------------------------
 // 配置与密钥（配置走 dbStorage；密钥只进 dbCryptoStorage，永不出 preload）
@@ -71,7 +91,15 @@ function getByokKey() {
 }
 
 function setByokKey(key) {
-  cryptoStore().setItem(BYOK_KEY_NAME, String(key || ""));
+  // dbCryptoStorage 已从 8.0 官方文档移除（运行时未说明下线，存量插件大量在用）：
+  // 存储不可用时显式返回失败，而不是把 TypeError 抛进渲染层调用点静默炸保存按钮
+  try {
+    cryptoStore().setItem(BYOK_KEY_NAME, String(key || ""));
+    return { ok: true };
+  } catch (e) {
+    logger.warn("ai.byok", "加密存储不可用（dbCryptoStorage），密钥未保存", { error: String((e && e.message) || e).slice(0, 120) });
+    return { ok: false, error: "CRYPTO_STORAGE_UNAVAILABLE" };
+  }
 }
 
 function hasByokKey() {
@@ -184,6 +212,11 @@ async function callUtools(messages, cfg, stream, onDelta, claim) {
   if (!claimGate(claim)) return { ok: false, aborted: true, error: "ABORTED" };
   const option = { messages };
   if (cfg.model) option.model = cfg.model;
+  // uTools 8.0：默认模型通常开思考模式，官方对常规文本处理任务建议 reasoning_effort:"none" 提速
+  // （本插件四条管线——摘要/翻译/目录/轻量批——均为机械文本处理，思考不提升质量）。
+  // 仅宿主 ≥8 附加：7.x 不认识该参，保持现状零风险；getAppVersion 探测失败也回落为不附加。
+  // BYOK 路径不传（第三方网关对未知参数宽容度不一）。
+  if (hostMajor() >= 8) option.reasoning_effort = "none";
   const t0 = Date.now();
   let acc = "";
   let chunkCount = 0;
@@ -235,6 +268,7 @@ async function callUtools(messages, cfg, stream, onDelta, claim) {
         engine: "utools",
         stream: true,
         model: modelLabelFor(cfg),
+        effort: option.reasoning_effort || "",
         ms: Date.now() - t0,
         chunks: chunkCount,
         chars: content.length,
@@ -242,7 +276,7 @@ async function callUtools(messages, cfg, stream, onDelta, claim) {
         tail: content.slice(-24),
       });
     } else {
-      logger.info("ai.call", "引擎调用完成", { engine: "utools", stream: false, model: modelLabelFor(cfg), ms: Date.now() - t0, chars: content.length });
+      logger.info("ai.call", "引擎调用完成", { engine: "utools", stream: false, model: modelLabelFor(cfg), effort: option.reasoning_effort || "", ms: Date.now() - t0, chars: content.length });
     }
     if (!content.trim()) {
       logger.warn("ai.call", "空输出", { chunks: chunkCount, resolve: resolveMeta(result) });
@@ -337,10 +371,10 @@ async function callByok(messages, cfg, stream, onDelta, claim) {
 // AI 缓存（ai:{kind}:{hash}，LRU）
 // ---------------------------------------------------------------------------
 
-/** 日志/展示用的模型名：可读 label 优先，退回内部 id（aimodels/…哈希），再退回默认名 */
+/** 日志/展示用的模型名：可读 label 优先，退回内部 id（aimodels/…哈希）；默认档回退 host-default（宿主默认模型 API 查不到，勿硬编码具体名误导） */
 function modelLabelFor(cfg) {
   if (cfg.engine === "byok") return cfg.byokModel || "byok";
-  return cfg.modelLabel || cfg.model || "deepseek-v3";
+  return cfg.modelLabel || cfg.model || "host-default";
 }
 
 let putsSinceTrim = 0;
@@ -419,6 +453,32 @@ function buildBatchMessages(docs, categories) {
 }
 
 /**
+ * AI 标题截断（防模型超长输出兜底）：按**可读边界**截，绝不切出半个词。
+ * 2026-10-31 宿主实测：模型给出 34 字的 titleNorm「Anthropic发布Claude Opus 5：百万token上下文窗口」，
+ * 无脑 slice(0,30) 得到「…：百万tok」——而它会成为 titleDisplay 直接铺到列表，看起来像乱码。
+ * 规则：≤max 原样返回；超长则在 max 内最后一个中文标点/空格/间隔号处截断并补「…」；
+ * 边界太靠前（<10 字）才退回硬截，保证不会只剩两三个字加省略号。
+ * 产物恒 ≤max（含结尾「…」）：硬截回退与剥尾标点统一经 max-1 限长。
+ */
+function clampAiTitle(s, max = 30) {
+  const t = String(s || "").trim();
+  if (t.length <= max) return t;
+  const head = t.slice(0, max);
+  const cut = Math.max(
+    head.lastIndexOf("："),
+    head.lastIndexOf("，"),
+    head.lastIndexOf("、"),
+    head.lastIndexOf("·"),
+    head.lastIndexOf("—"),
+    head.lastIndexOf("-"),
+    head.lastIndexOf(" ")
+  );
+  let base = (cut >= 10 ? head.slice(0, cut) : head).replace(/[，、：·—\-\s]+$/, "");
+  if (base.length > max - 1) base = base.slice(0, max - 1);
+  return base + "…";
+}
+
+/**
  * 合并调用输出解析：头部元信息失败整体降级为纯摘要（§6.2）。
  * 元信息各段之间允许换行/空白（模型常把【titleZh】/【titleNorm】/【tags】分行输出）。
  */
@@ -428,7 +488,7 @@ function parseEnrichOutput(text) {
   const m = /【titleZh】\s*([^【\n]*)\s*【titleNorm】\s*([^【\n]*)\s*【tags】\s*([^【\n]*)/.exec(head);
   if (m) {
     out.titleZh = m[1].trim().slice(0, 60);
-    out.titleNorm = m[2].trim().slice(0, 30);
+    out.titleNorm = clampAiTitle(m[2], 30);
     out.tags = m[3]
       .split(/[,，、]/)
       .map((s) => s.trim())
@@ -649,7 +709,7 @@ async function batchEnrich(itemDocs) {
             .filter(Boolean)
             .slice(0, 2),
       titleZh: String(row.titleZh || "").trim().slice(0, 60),
-      titleNorm: String(row.titleNorm || "").trim().slice(0, 30),
+      titleNorm: clampAiTitle(row.titleNorm, 30),
     };
     await cachePut(c.cacheId, ai);
     const r = await applyAi(c.doc, ai, "batch"); // 内部 get() 复验 + 不覆盖 enrich（H4/T-21）
@@ -1066,5 +1126,5 @@ module.exports = {
   saveConfig,
   setByokKey,
   hasByokKey,
-  __test: { parseEnrichOutput, byokEndpoint, firstSentence, pickDisplayTitle, applyAi, markError, loadQuota, countCall, quotaCheck, cachePut, buildEnrichMessages, buildBatchMessages, parseTransOutput, applyTrans, cjkRatio, buildTransMessages, DEFAULT_CONFIG, BATCH_MAX, TRUNC_CHARS, setEngineTimeout: (ms) => (engineTimeoutMs = ms), buildTocMessages, parseTocOutput, applyToc, tocAnchorSections, TOC_MAX_PARAS, TOC_PARA_CHARS, TOC_MAX_CHARS },
+  __test: { parseEnrichOutput, byokEndpoint, firstSentence, pickDisplayTitle, applyAi, markError, loadQuota, countCall, quotaCheck, cachePut, buildEnrichMessages, buildBatchMessages, parseTransOutput, applyTrans, cjkRatio, buildTransMessages, DEFAULT_CONFIG, BATCH_MAX, TRUNC_CHARS, clampAiTitle, setEngineTimeout: (ms) => (engineTimeoutMs = ms), resetHostMajor: () => (hostMajorCache = null), buildTocMessages, parseTocOutput, applyToc, tocAnchorSections, TOC_MAX_PARAS, TOC_PARA_CHARS, TOC_MAX_CHARS },
 };

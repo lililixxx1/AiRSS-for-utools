@@ -313,7 +313,10 @@ export function installMock() {
         mockAiCfg = { ...mockAiCfg, ...patch };
         return { ...mockAiCfg };
       },
-      setByokKey() {},
+      // 浏览器 dev 无 dbCryptoStorage 概念，恒报成功（与 preload 返回 {ok} 同形）
+      setByokKey() {
+        return { ok: true };
+      },
       hasByokKey() {
         return false;
       },

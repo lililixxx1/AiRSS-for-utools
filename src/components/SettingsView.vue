@@ -81,7 +81,13 @@ function saveAiCfg(patch: Record<string, unknown>) {
 
 function saveByokKey() {
   const k = byokKeyInput.value.trim();
-  window.airss.ai.setByokKey(k);
+  // 空守卫防旧 preload 形态返回 void；ok===false = 宿主加密存储不可用
+  // （dbCryptoStorage 已从 uTools 8.0 官方文档移除，运行时若下线则 preload 显式报失败而非抛错）
+  const r = window.airss.ai.setByokKey(k);
+  if (r && r.ok === false) {
+    ui.toast(k ? "宿主加密存储不可用，密钥未保存" : "宿主加密存储不可用，密钥未清除");
+    return;
+  }
   byokKeySaved.value = !!k;
   byokKeyInput.value = "";
   ui.toast(k ? "密钥已加密保存" : "已清除密钥");
@@ -271,7 +277,7 @@ function openRepo() {
             <span class="st-label">模型</span>
             <DropdownSelect
               :model-value="aiCfg.model"
-              :options="[{ value: '', label: '默认（deepseek-v3）' }, ...(aiStatus?.models || []).map((m) => ({ value: m.id, label: m.label }))]"
+              :options="[{ value: '', label: '默认（跟随 uTools 设置）' }, ...(aiStatus?.models || []).map((m) => ({ value: m.id, label: m.label }))]"
               aria-label="AI 模型"
               width="220px"
               @update:model-value="onModelPick"

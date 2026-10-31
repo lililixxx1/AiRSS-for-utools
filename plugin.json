@@ -11,12 +11,14 @@
     {
       "code": "airss",
       "explain": "AiRSS 智能订阅阅读器",
+      "description": "AiRSS 智能订阅阅读器",
       "mainPush": true,
       "cmds": ["AiRSS", "rss", "订阅", "阅读"]
     },
     {
       "code": "add_feed",
       "explain": "订阅到 AiRSS",
+      "description": "订阅到 AiRSS",
       "cmds": [
         {
           "type": "regex",
