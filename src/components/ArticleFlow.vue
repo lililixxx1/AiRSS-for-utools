@@ -195,7 +195,7 @@ const emptyKind = computed<null | "first-run" | "no-result" | "all-empty" | "cat
           :key="w.item._id"
           class="vl-row"
           :style="{ transform: `translateY(${vl.offsetOf(w.index)}px)` }"
-          :ref="(el: any) => vl.measureRow(el, w.item._id)"
+          :ref="vl.rowRef(w.item._id)"
         >
           <ArticleCard
             v-if="isCard"
@@ -288,7 +288,9 @@ html[data-theme="dark"] .dd-menu { background: var(--bg-elevated); }
 .skel-banner { height: 120px; border-radius: 0; }
 
 .vl-inner { position: relative; }
-.vl-row { position: absolute; left: 0; right: 0; will-change: transform; }
+/* 不写 will-change: transform —— 窗口内几十行各提一层合成层会吃显存/增图层管理开销；
+   transform 本身已是合成器属性，滚动时不会触发重排重绘 */
+.vl-row { position: absolute; left: 0; right: 0; }
 /* 容器持焦不画轮廓：当前位置由游标行底色（aria-activedescendant 目标）承担（§8.2 惯例） */
 .vl-inner:focus { outline: none; }
 </style>

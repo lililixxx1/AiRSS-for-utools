@@ -62,7 +62,7 @@ function share() {
     @click="open"
     @keydown.enter="open"
   >
-    <img v-if="item.cover && bannerOk" class="banner" :src="item.cover" loading="lazy" alt="" referrerpolicy="no-referrer" @load="onBannerLoad" @error="bannerOk = false" />
+    <img v-if="item.cover && bannerOk" class="banner" :src="item.cover" loading="lazy" decoding="async" alt="" referrerpolicy="no-referrer" @load="onBannerLoad" @error="bannerOk = false" />
     <div class="card-body">
       <div class="tag-row">
         <span class="tag">{{ feed?.category || "默认" }}</span>

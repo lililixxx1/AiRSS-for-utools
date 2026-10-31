@@ -51,7 +51,7 @@ function open() {
     <span class="title ellipsis" :title="item.title"><template v-for="(seg, si) in titleSegs" :key="si"><mark v-if="seg.hit" class="hl">{{ seg.t }}</mark><template v-else>{{ seg.t }}</template></template><span v-if="titleRewritten" class="ai-mark">AI</span></span>
     <span class="feed ellipsis">{{ feed?.title || "" }}</span>
     <span class="time num">{{ timeAgo(item.pubTs) }}</span>
-    <img v-if="item.cover" class="thumb" :src="item.cover" loading="lazy" alt="" referrerpolicy="no-referrer" />
+    <img v-if="item.cover" class="thumb" :src="item.cover" loading="lazy" decoding="async" alt="" referrerpolicy="no-referrer" />
 
     <span class="row-acts">
       <button v-if="showAiBtn" class="icon-btn act" aria-label="AI 摘要" title="AI 摘要" @click.stop="data.summarizeItem(item)"><I.sparkle /></button>
