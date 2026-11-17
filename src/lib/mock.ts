@@ -377,9 +377,22 @@ export function installMock() {
     onMainPush() {},
     onPluginDetach() {},
     onDbPull() {},
-    setSubInput() {},
-    removeSubInput() {},
-    subInputFocus() {},
+    setSubInput() {
+      return true;
+    },
+    setSubInputValue() {
+      return true;
+    },
+    removeSubInput() {
+      return true;
+    },
+    subInputFocus() {
+      return true;
+    },
+    subInputBlur() {},
+    subInputSelect() {
+      return true;
+    },
     showNotification(body: string) {
       console.log("[mock notification]", body);
     },

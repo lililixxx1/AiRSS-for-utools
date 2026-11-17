@@ -13,16 +13,19 @@ declare module "*.vue" {
 interface UtoolsApi {
   onPluginEnter(cb: (action: { code: string; type: string; payload: any; from?: string }) => void): void;
   onPluginOut(cb: (isKill: boolean) => void): void;
-  onMainPush(cb: (action: any) => any[], onSelect: (action: any) => boolean | undefined): void;
+  onMainPush(cb: (action: any) => any[], onSelect?: (action: any) => boolean | undefined): void;
   onPluginDetach(cb: () => void): void;
   onDbPull(cb: (docs: any[]) => void): void;
-  setSubInput(onChange: (text: string) => void, placeholder: string, isFocus?: boolean): void;
-  removeSubInput(): void;
-  subInputFocus(): void;
+  setSubInput(onChange: (details: { text: string }) => void, placeholder?: string, isFocus?: boolean): boolean;
+  setSubInputValue(text: string): boolean;
+  removeSubInput(): boolean;
+  subInputFocus(): boolean;
+  subInputBlur(): void;
+  subInputSelect(): boolean;
   showNotification(body: string, clickFeatureCode?: string): void;
   shellOpenExternal(url: string): void;
-  showOpenDialog(options: any): string[] | null;
-  showSaveDialog(options: any): string | null;
+  showOpenDialog(options: any): string[] | undefined;
+  showSaveDialog(options: any): string | undefined;
   isDarkColors(): boolean;
   getAppVersion(): string;
   redirect(label: string, payload?: any): void;

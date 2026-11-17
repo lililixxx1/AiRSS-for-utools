@@ -38,27 +38,37 @@ function submitPrompt() {
 }
 
 let dbPullTimer: number | undefined;
+let initPromise: Promise<void> | null = null;
+let lastSubInputText = "";
 
-/** 初始化数据 + 云同步状态处理（PLAN §5.1：replicateStateFromCloud 三态） */
+/** 初始化数据 + 云同步状态处理（PLAN §5.1：replicateStateFromCloud 三态；单飞锁防 onMounted 与首次 onPluginEnter 并发双跑） */
 async function initData() {
-  let state: 0 | 1 | null = null;
+  if (initPromise) return initPromise;
+  initPromise = (async () => {
+    let state: 0 | 1 | null = null;
+    try {
+      state = utools.db.replicateStateFromCloud();
+    } catch {
+      state = null;
+    }
+    if (state === 1) {
+      // 同步中：等待 onDbPull 落地（带 1.5s 兜底），期间保持骨架
+      await new Promise<void>((resolve) => {
+        const t = window.setTimeout(resolve, 1500);
+        (window as any).__resolveDbSync = () => {
+          clearTimeout(t);
+          resolve();
+        };
+      });
+    }
+    await data.loadAll();
+    data.refreshDue(); // 打开即增量刷新，渲染不等刷新完成
+  })();
   try {
-    state = utools.db.replicateStateFromCloud();
-  } catch {
-    state = null;
+    await initPromise;
+  } finally {
+    if (!data.loaded) initPromise = null; // 初始化失败时释放锁允许重试
   }
-  if (state === 1) {
-    // 同步中：等待 onDbPull 落地（带 1.5s 兜底），期间保持骨架
-    await new Promise<void>((resolve) => {
-      const t = window.setTimeout(resolve, 1500);
-      (window as any).__resolveDbSync = () => {
-        clearTimeout(t);
-        resolve();
-      };
-    });
-  }
-  await data.loadAll();
-  data.refreshDue(); // 打开即增量刷新，渲染不等刷新完成
 }
 
 /** 正文字号 4 档（tokens.css 的 --reading-fs 只有 16px 兜底，档位切换必须在此驱动） */
@@ -115,8 +125,11 @@ function wireUtools() {
     }, 300);
   });
 
-  utools.setSubInput((text: string) => {
-    data.setSearch(text); // 与侧栏搜索框同源（统一走 setSearch：防抖 + 正文检索）
+  utools.setSubInput((details: { text?: string } | string) => {
+    // uTools 官方回调入参为 { text } 对象（兼容极端旧环境/mock 传 string）
+    const text = typeof details === "string" ? details : String(details?.text ?? "");
+    lastSubInputText = text;
+    if (data.search !== text) data.setSearch(text); // 与侧栏搜索框同源（统一走 setSearch：防抖 + 正文检索）
   }, "搜索文章…");
 
   utools.onMainPush(
@@ -130,6 +143,21 @@ function wireUtools() {
     () => true
   );
 }
+
+// 侧栏搜索 / ⌫ 清空时反向同步主窗子输入框，避免顶部残留旧搜索词
+watch(
+  () => data.search,
+  (val) => {
+    if (val === lastSubInputText) return;
+    lastSubInputText = val;
+    if (ui.detached) return;
+    try {
+      utools.setSubInputValue?.(val);
+    } catch {
+      /* 分离窗或 mock 环境忽略 */
+    }
+  }
+);
 
 /** 逐级返回阶梯（⌫；2026-09-12 起 Esc 分支整体移除，含分离窗）：弹层 → sbDrawer → 文内搜索 → 关阅读 → 退设置 → 清搜索；返回是否消费 */
 function backLadder(): boolean {

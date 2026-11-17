@@ -6,7 +6,7 @@
 //       .idea/.github/ESM 变体等非运行时一律剔除，preload 源码直供不打包是 uTools 规范）
 //   3) package-lock.json 非运行时文件不随包
 // 用法：node scripts/make-release.js
-const { spawnSync } = require("child_process");
+const { execFileSync, spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
@@ -111,4 +111,19 @@ if (bad.length) {
   console.error(`[make-release] 自检失败，残留 ${bad.length} 个非运行时文件：\n  ` + bad.slice(0, 20).join("\n  "));
   process.exit(1);
 }
+
+// 4) 运行时 CJS 装载自检：确认剔除杂项后 release/preload/services/* 在纯 CJS 模式下仍可全部 require（防误删依赖文件）
+try {
+  const cjsFlag =
+    process.allowedNodeEnvironmentFlags && process.allowedNodeEnvironmentFlags.has("--no-experimental-require-module")
+      ? ["--no-experimental-require-module"]
+      : [];
+  const svcs = fs.readdirSync(path.join(REL, "preload", "services")).filter((f) => f.endsWith(".js"));
+  const checkCode = `${JSON.stringify(svcs)}.forEach((f) => require('./preload/services/' + f))`;
+  execFileSync(process.execPath, [...cjsFlag, "-e", checkCode], { cwd: REL, stdio: "pipe" });
+} catch (e) {
+  console.error("[make-release] 运行时 CJS 装载自检失败：\n" + (e.stderr ? e.stderr.toString() : e.message));
+  process.exit(1);
+}
+
 console.log(`[make-release] OK：${count} 个文件，${(bytes / 1024 / 1024).toFixed(1)}MB → ${REL}`);

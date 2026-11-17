@@ -131,9 +131,13 @@ function refreshLogCount() {
 }
 
 function copyLogs() {
-  const text = window.airss.log.dumpText();
-  utools.copyText(text);
-  ui.toast(`已复制 ${logCount.value} 条日志`);
+  try {
+    const text = window.airss.log.dumpText();
+    utools.copyText(text);
+    ui.toast(`已复制 ${logCount.value} 条日志`);
+  } catch (e: any) {
+    ui.toast("复制日志失败：" + String(e?.message || e), "error");
+  }
 }
 
 function exportLogs() {
@@ -143,8 +147,12 @@ function exportLogs() {
     filters: [{ name: "文本", extensions: ["txt", "log"] }],
   });
   if (!path) return;
-  window.airss.sys.writeTextFile(path, window.airss.log.dumpText());
-  ui.toast("日志已导出");
+  try {
+    window.airss.sys.writeTextFile(path, window.airss.log.dumpText());
+    ui.toast("日志已导出");
+  } catch (e: any) {
+    ui.toast("导出日志失败：" + String(e?.message || e), "error");
+  }
 }
 
 function clearLogs() {

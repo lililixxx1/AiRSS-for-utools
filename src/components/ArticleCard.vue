@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import type { Item, Feed } from "../types";
 import { useDataStore } from "../stores/data";
 import { useSettingsStore } from "../stores/settings";
@@ -34,6 +34,12 @@ const showAiBtn = computed(() => settings.aiEnabled && settings.aiAutoCount === 
 // 封面门控：抓到的首图常是头像/小图标/窄长截图，拉伸成 148px 通栏极难看；
 // 加载后按自然尺寸裁决，不合格整块不渲染（卡片回退为纯文字形态）
 const bannerOk = ref(true);
+watch(
+  () => props.item.cover,
+  () => {
+    bannerOk.value = true;
+  }
+);
 function onBannerLoad(e: Event) {
   const img = e.target as HTMLImageElement;
   if (img.naturalWidth < 480 || img.naturalHeight < 100 || img.naturalHeight > img.naturalWidth * 2) {

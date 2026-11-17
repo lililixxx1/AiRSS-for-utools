@@ -571,13 +571,28 @@ async function maybeExtractFull(id: string) {
   if (ui.readerItemId !== id) return; // 快速切文守卫：迟到的旧文正文不得覆盖新文
   if ((r.status === "hit" || r.status === "fetched") && r.content) {
     html.value = r.content;
-    // 旧译文/旧目录已被 preload 侧连带失效（T-09 同族），内存同步清理、回初始态，
-    // 可按新全文重译/重生成（渲染层不清则面板照列死目录、item 层假命中——送审必改）
-    if (item.value) item.value.aiToc = undefined;
-    resetTrans();
-    resetToc();
+    if (r.status === "fetched") {
+      // 本次新提取替换正文：旧译文/旧目录已被 preload 侧连带失效（T-09 同族），内存同步清理、回初始态
+      if (item.value) {
+        item.value.aiToc = undefined;
+        item.value.aiTrans = undefined;
+      }
+      resetTrans();
+      resetToc();
+    } else {
+      // hit（命中 itemfullx 缓存）：先清旧摘要 DOM 的译文/目录状态，待新全文 DOM patch 后恢复与提取版对齐的 aiToc/aiTrans
+      resetTrans();
+      resetToc();
+    }
     await nextTick();
     scheduleTocWarmup(); // 新全文的元信息：惰性重算（key 已随 html 变化）
+    if (r.status === "hit" && item.value) {
+      tocState.value = item.value.aiToc?.sections?.length ? "done" : "idle";
+      if (settings.aiEnabled && item.value.aiTrans?.paras?.length) {
+        trState.value = "done";
+        insertTranslations(item.value.aiTrans.paras);
+      }
+    }
     contentEl.value?.querySelectorAll("img").forEach((img) => {
       img.setAttribute("loading", "lazy");
       img.setAttribute("referrerpolicy", "no-referrer");

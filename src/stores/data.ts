@@ -357,6 +357,10 @@ export const useDataStore = defineStore("data", {
       const removed = await window.airss.db.deleteFeedCascade(feed);
       if (this.filter.kind === "feed" && this.filter.value === feed._id) this.filter = { kind: "all" };
       await this.loadAll();
+      if (ui.readerItemId && !this.items.some((x) => x._id === ui.readerItemId)) {
+        if (ui.view === "reader") ui.closeReader();
+        else ui.readerItemId = null;
+      }
       ui.toast(`已删除「${feed.title}」· 清理 ${removed} 篇文章`);
     },
 
@@ -368,6 +372,7 @@ export const useDataStore = defineStore("data", {
     },
 
     async markRead(item: Item, read = true) {
+      if (item.read === read) return;
       item.read = read; // 乐观翻转（<300ms 反馈）
       const feed = this.feedMap.get(item.feedKey);
       if (feed) feed.unreadCount = Math.max(0, feed.unreadCount + (read ? -1 : 1));
@@ -463,21 +468,32 @@ export const useDataStore = defineStore("data", {
       const fresh = parsed.filter((p) => !existing.has(p.xmlUrl));
       this.opmlImporting = { done: 0, total: fresh.length };
       let i = 0;
-      for (const p of fresh) {
-        await window.airss.sys.createFeed({ url: p.xmlUrl, title: p.title, category: p.category, siteUrl: p.siteUrl });
-        i += 1;
-        this.opmlImporting = { done: i, total: fresh.length };
+      try {
+        for (const p of fresh) {
+          await window.airss.sys.createFeed({ url: p.xmlUrl, title: p.title, category: p.category, siteUrl: p.siteUrl });
+          i += 1;
+          this.opmlImporting = { done: i, total: fresh.length };
+        }
+      } catch (e: any) {
+        ui.toast(`导入中断（已完成 ${i}/${fresh.length}）：` + String(e?.message || e), "error");
+      } finally {
+        this.opmlImporting = null;
       }
-      this.opmlImporting = null;
       await this.loadAll();
-      ui.toast(`导入完成 · 新增 ${fresh.length} 个源${parsed.length - fresh.length ? `，跳过 ${parsed.length - fresh.length} 个已存在` : ""}，正在抓取首批文章`);
-      this.refreshDue(); // 后台首抓
+      if (i > 0 || fresh.length === 0) {
+        ui.toast(`导入完成 · 新增 ${i} 个源${parsed.length - fresh.length ? `，跳过 ${parsed.length - fresh.length} 个已存在` : ""}${i > 0 ? "，正在抓取首批文章" : ""}`);
+      }
+      if (i > 0) this.refreshDue(); // 后台首抓
     },
 
     async exportOpml(filePath: string) {
       const ui = useUiStore();
-      window.airss.sys.writeTextFile(filePath, window.airss.opml.build(this.feeds));
-      ui.toast(`已导出 ${this.feeds.length} 个订阅源`);
+      try {
+        window.airss.sys.writeTextFile(filePath, window.airss.opml.build(this.feeds));
+        ui.toast(`已导出 ${this.feeds.length} 个订阅源`);
+      } catch (e: any) {
+        ui.toast("导出 OPML 失败：" + String(e?.message || e), "error");
+      }
     },
 
     async clearAllData() {
@@ -485,7 +501,8 @@ export const useDataStore = defineStore("data", {
       await window.airss.db.clearAll();
       await this.loadAll();
       this.filter = { kind: "all" };
-      ui.view = "main";
+      this.setSearch("");
+      ui.closeReader();
       ui.toast("已清空所有数据");
     },
   },

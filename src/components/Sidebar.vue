@@ -184,7 +184,13 @@ function pickOpml() {
       properties: ["openFile"],
     });
     const path = Array.isArray(picked) ? picked[0] : picked;
-    if (path) data.importOpml(window.airss.sys.readTextFile(path));
+    if (path) {
+      try {
+        data.importOpml(window.airss.sys.readTextFile(path));
+      } catch (e: any) {
+        ui.toast("读取 OPML 文件失败：" + String(e?.message || e), "error");
+      }
+    }
     return; // 取消选择：安静返回
   }
   opmlFileInput.value?.click();
