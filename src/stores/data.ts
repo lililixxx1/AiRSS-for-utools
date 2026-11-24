@@ -1,509 +1,569 @@
+import { computed, ref, shallowRef } from "vue";
 import { defineStore } from "pinia";
 import type { Feed, Item } from "../types";
 import { useSettingsStore } from "./settings";
 import { useUiStore } from "./ui";
 
-/** 列表过滤器：统计三卡 / 订阅源 / 分类 / 标签 共用一个选择模型 */
 export interface ListFilter {
-  kind: "all" | "unread" | "starred" | "feed" | "category" | "tag";
+  kind: "all" | "unread" | "starred" | "later" | "feed" | "category" | "tag";
   value?: string;
 }
 
-const noopHooks = {};
-
-/** 搜索防抖句柄、扫描代际 token 与上次已扫词项（模块级：非响应态，不进 store） */
 let searchTimer: number | undefined;
 let scanSeq = 0;
 let lastTerms = "";
+let eventsWired = false;
 
-/** 词项归一：多空白合一、小写，用于"词项确实变化才重扫"的比对 */
 const normTerms = (q: string) => q.trim().toLowerCase().split(/\s+/).filter(Boolean).join(" ");
 
-/** 过滤+搜索（静音剔除前）的口径：filtered 与 mutedInView 共用同一实现，防两处漂移 */
-function filterSearchBase(state: { items: Item[]; feeds: Feed[]; filter: ListFilter; search: string; contentHits: Set<string> }): Item[] {
-  const terms = state.search.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  let list = state.items;
-  const f = state.filter;
+function filterSearchBase(params: {
+  items: Item[];
+  feeds: Feed[];
+  filter: ListFilter;
+  search: string;
+  contentHits: Set<string>;
+}): Item[] {
+  const terms = params.search.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  let list = params.items;
+  const f = params.filter;
   if (f.kind === "unread") list = list.filter((x) => !x.read);
   else if (f.kind === "starred") list = list.filter((x) => x.starred);
+  else if (f.kind === "later") list = list.filter((x) => x.isLater || x.feedKey === "feed:__later__");
   else if (f.kind === "feed" && f.value) list = list.filter((x) => x.feedKey === f.value);
   else if (f.kind === "category" && f.value) {
-    const feedIds = new Set(state.feeds.filter((fd) => (fd.category || "默认") === f.value).map((fd) => fd._id));
+    const feedIds = new Set(params.feeds.filter((fd) => fd.special !== "later" && (fd.category || "默认") === f.value).map((fd) => fd._id));
     list = list.filter((x) => feedIds.has(x.feedKey));
   } else if (f.kind === "tag" && f.value) {
-    // 标签智能文件夹（C）：命中的是 AI 产物 tags，与搜索/静音天然叠加为交集
     list = list.filter((x) => x.ai?.tags?.includes(f.value!));
   }
-  // 搜索 = 标题/摘要多词 AND 命中 ∪ 正文命中（contentHits 由 searchContent 异步回填，防抖期先出快结果）
-  // 标题口径含 titleDisplay（AI 优化标题）：用户按卡片上明示的改写题搜索也能命中
+
   if (terms.length) {
-    // 小写化每条只做一次（原来每个词项各 toLowerCase 一遍标题+摘要，3 词 = 6 次分配/条）
     const quick = (x: Item) => {
       const t = (x.titleDisplay || x.title).toLowerCase();
       const s = x.summaryText ? x.summaryText.toLowerCase() : "";
       return terms.every((term) => t.includes(term) || s.includes(term));
     };
-    list = list.filter((x) => quick(x) || state.contentHits.has(x._id));
+    list = list.filter((x) => quick(x) || params.contentHits.has(x._id));
   }
   return list;
 }
 
-/** 静音命中（PLAN-V1.3 B）：多词 OR——任一词命中即静音（排雷宁多勿漏）；
- * 匹配面与搜索口径一致：titleDisplay||title + summaryText，小写 includes */
 function isMuted(x: Item, words: string[]): boolean {
   const t = (x.titleDisplay || x.title).toLowerCase();
   const s = (x.summaryText || "").toLowerCase();
   return words.some((w) => t.includes(w.toLowerCase()) || s.includes(w.toLowerCase()));
 }
 
-export const useDataStore = defineStore("data", {
-  state: () => ({
-    feeds: [] as Feed[],
-    items: [] as Item[],
-    loaded: false,
-    refreshing: false,
-    progress: { done: 0, total: 0 },
-    filter: { kind: "all" } as ListFilter,
-    search: "",
-    // 正文检索态（setSearch 防抖驱动，均不持久化；contentHits 为去前缀 itemId 集）
-    contentHits: new Set<string>(),
-    searchScanning: false,
-    searchScanned: 0,
-    searchTruncated: false,
-    aiBusy: new Set<string>(), // 手动 AI 摘要进行中的 itemId（防重复点击；不持久化）
-    opmlImporting: null as null | { done: number; total: number },
-    mutePaused: false, // 静音暂停（内存态不持久化：暂停是临时检查动作，每次启动过滤默认生效）
-  }),
+export const useDataStore = defineStore("data", () => {
+  const settings = useSettingsStore();
 
-  getters: {
-    feedMap(state): Map<string, Feed> {
-      return new Map(state.feeds.map((f) => [f._id, f]));
-    },
+  // 使用 shallowRef 避免万级条目深层 Proxy 开销；所有局部变更通过替换数组或 triggerRef 触发视图更新
+  const feeds = ref<Feed[]>([]);
+  const items = shallowRef<Item[]>([]);
+  const loaded = ref(false);
+  const refreshing = ref(false);
+  const progress = ref({ done: 0, total: 0 });
+  const filter = ref<ListFilter>({ kind: "all" });
+  const search = ref("");
+  const contentHits = ref(new Set<string>());
+  const searchScanning = ref(false);
+  const searchScanned = ref(0);
+  const searchTruncated = ref(false);
+  const aiBusy = ref(new Set<string>());
+  const opmlImporting = ref<null | { done: number; total: number }>(null);
+  const mutePaused = ref(false);
 
-    categories(state): { name: string; total: number; unread: number }[] {
-      // 单遍计数：原实现对每源两遍全量 items.filter（O(源数×条数)），任意已读/星标翻转
-      // 都触发全量重算，几十个源 × 万级条目时侧栏会明显卡顿
-      const perFeed = new Map<string, { total: number; unread: number }>();
-      for (const x of state.items) {
-        const cur = perFeed.get(x.feedKey);
-        if (cur) {
-          cur.total += 1;
-          if (!x.read) cur.unread += 1;
-        } else {
-          perFeed.set(x.feedKey, { total: 1, unread: x.read ? 0 : 1 });
+  const regularFeeds = computed(() => feeds.value.filter((f) => f.special !== "later" && f._id !== "feed:__later__"));
+
+  const feedMap = computed(() => new Map(feeds.value.map((f) => [f._id, f])));
+
+  const categories = computed(() => {
+    const perFeed = new Map<string, { total: number; unread: number }>();
+    for (const x of items.value) {
+      const cur = perFeed.get(x.feedKey);
+      if (cur) {
+        cur.total += 1;
+        if (!x.read) cur.unread += 1;
+      } else {
+        perFeed.set(x.feedKey, { total: 1, unread: x.read ? 0 : 1 });
+      }
+    }
+    const byCat = new Map<string, { total: number; unread: number }>();
+    for (const f of regularFeeds.value) {
+      const cat = f.category || "默认";
+      const v = perFeed.get(f._id) || { total: 0, unread: 0 };
+      const cur = byCat.get(cat) || { total: 0, unread: 0 };
+      cur.total += v.total;
+      cur.unread += v.unread;
+      byCat.set(cat, cur);
+    }
+    return [...byCat.entries()].map(([name, v]) => ({ name, ...v }));
+  });
+
+  const stats = computed(() => {
+    let unread = 0;
+    let starred = 0;
+    let later = 0;
+    let laterUnread = 0;
+    for (const x of items.value) {
+      if (!x.read) unread += 1;
+      if (x.starred) starred += 1;
+      if (x.isLater || x.feedKey === "feed:__later__") {
+        later += 1;
+        if (!x.read) laterUnread += 1;
+      }
+    }
+    return { total: items.value.length, unread, starred, later, laterUnread };
+  });
+
+  const filtered = computed(() => {
+    let list = filterSearchBase({
+      items: items.value,
+      feeds: feeds.value,
+      filter: filter.value,
+      search: search.value,
+      contentHits: contentHits.value,
+    });
+    const words = settings.muteWords;
+    if (words.length && !mutePaused.value) list = list.filter((x) => !isMuted(x, words));
+    if (settings.orderBy === "oldest") return [...list].sort((a, b) => a.pubTs - b.pubTs);
+    if (settings.orderBy === "unread") return [...list].sort((a, b) => Number(a.read) - Number(b.read) || b.pubTs - a.pubTs);
+    return [...list].sort((a, b) => b.pubTs - a.pubTs);
+  });
+
+  const mutedInView = computed(() => {
+    const words = settings.muteWords;
+    if (!words.length) return 0;
+    return filterSearchBase({
+      items: items.value,
+      feeds: feeds.value,
+      filter: filter.value,
+      search: search.value,
+      contentHits: contentHits.value,
+    }).filter((x) => isMuted(x, words)).length;
+  });
+
+  const unreadTopTitles = computed(() => {
+    const top: Item[] = [];
+    for (const x of items.value) {
+      if (x.read) continue;
+      if (top.length < 3 || x.pubTs > top[top.length - 1].pubTs) {
+        top.push(x);
+        top.sort((a, b) => b.pubTs - a.pubTs);
+        if (top.length > 3) top.length = 3;
+      }
+    }
+    return top.map((x) => x.title);
+  });
+
+  const topTags = computed(() => {
+    const byTag = new Map<string, number>();
+    for (const x of items.value) {
+      if (!x.ai?.tags) continue;
+      for (const t of x.ai.tags) {
+        if (!t) continue;
+        byTag.set(t, (byTag.get(t) || 0) + 1);
+      }
+    }
+    return [...byTag.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+      .slice(0, 8);
+  });
+
+  function recomputeFeedUnreadLocal() {
+    const unreadBy = new Map<string, number>();
+    for (const it of items.value) if (!it.read) unreadBy.set(it.feedKey, (unreadBy.get(it.feedKey) || 0) + 1);
+    for (const f of feeds.value) f.unreadCount = unreadBy.get(f._id) || 0;
+  }
+
+  function replaceItemInPlace(updated: Item) {
+    const arr = items.value.slice();
+    const idx = arr.findIndex((x) => x._id === updated._id);
+    if (idx >= 0) arr[idx] = { ...arr[idx], ...updated };
+    else arr.unshift(updated);
+    items.value = arr;
+    recomputeFeedUnreadLocal();
+  }
+
+  function wirePreloadEvents() {
+    if (eventsWired || typeof window.airss?.on !== "function") return;
+    eventsWired = true;
+
+    window.airss.on("refresh-progress", (p: any) => {
+      refreshing.value = !!p?.refreshing;
+      progress.value = { done: p?.done || 0, total: p?.total || 0 };
+      if (p?.feed) {
+        const idx = feeds.value.findIndex((f) => f._id === p.feed._id);
+        if (idx >= 0) feeds.value[idx] = { ...feeds.value[idx], ...p.feed };
+      }
+    });
+
+    window.airss.on("feeds-changed", async () => {
+      const fList = await window.airss.db.getFeeds();
+      feeds.value = fList.sort((a: Feed, b: Feed) => (a.order ?? Infinity) - (b.order ?? Infinity) || a.createdAt - b.createdAt);
+      recomputeFeedUnreadLocal();
+    });
+
+    window.airss.on("items-changed", async (ev: any) => {
+      if (ev?.kind === "ai-updated" && Array.isArray(ev.items)) {
+        const arr = items.value.slice();
+        for (const u of ev.items) {
+          const idx = arr.findIndex((x) => x._id === u._id);
+          if (idx >= 0) arr[idx] = { ...arr[idx], ...u };
         }
-      }
-      const byCat = new Map<string, { total: number; unread: number }>();
-      for (const f of state.feeds) {
-        const cat = f.category || "默认";
-        const v = perFeed.get(f._id) || { total: 0, unread: 0 };
-        const cur = byCat.get(cat) || { total: 0, unread: 0 };
-        cur.total += v.total;
-        cur.unread += v.unread;
-        byCat.set(cat, cur);
-      }
-      return [...byCat.entries()].map(([name, v]) => ({ name, ...v }));
-    },
-
-    stats(state): { total: number; unread: number; starred: number } {
-      let unread = 0;
-      let starred = 0;
-      for (const x of state.items) {
-        if (!x.read) unread += 1;
-        if (x.starred) starred += 1;
-      }
-      return { total: state.items.length, unread, starred };
-    },
-
-    /** 过滤 + 搜索 + 静音剔除 + 排序（搜索/全部已读基于全量快照，PLAN §9）。
-     *  静音剔除位于搜索之后、排序之前；mutePaused 时跳过。计数三卡/侧栏未读基于全量 items
-     *  不受影响——计数是事实、列表是视图，混算会让用户怀疑丢文章 */
-    filtered(state): Item[] {
-      const settings = useSettingsStore();
-      let list = filterSearchBase(state);
-      const words = settings.muteWords;
-      if (words.length && !state.mutePaused) list = list.filter((x) => !isMuted(x, words));
-      if (settings.orderBy === "oldest") return [...list].sort((a, b) => a.pubTs - b.pubTs);
-      if (settings.orderBy === "unread") return [...list].sort((a, b) => Number(a.read) - Number(b.read) || b.pubTs - a.pubTs);
-      return [...list].sort((a, b) => b.pubTs - a.pubTs); // newest 默认
-    },
-
-    /** 当前过滤+搜索口径下被静音篇数（透视入口；暂停态也回真实计数，按钮始终知道会静音几篇） */
-    mutedInView(state): number {
-      const settings = useSettingsStore();
-      const words = settings.muteWords;
-      if (!words.length) return 0;
-      return filterSearchBase(state).filter((x) => isMuted(x, words)).length;
-    },
-
-    unreadTopTitles(state): string[] {
-      // 单遍选 top3（原实现全量拷贝+排序只为取 3 条；onMainPush 每次拉取都跑）
-      const top: Item[] = [];
-      for (const x of state.items) {
-        if (x.read) continue;
-        if (top.length < 3 || x.pubTs > top[top.length - 1].pubTs) {
-          top.push(x);
-          top.sort((a, b) => b.pubTs - a.pubTs);
-          if (top.length > 3) top.length = 3;
-        }
-      }
-      return top.map((x) => x.title);
-    },
-
-    /** 标签云（PLAN-V1.3 C）：items 扁平化 ai.tags 计数降序取前 8；
-     *  AI 关闭/无任何 tags 时为空数组 → 侧栏标签区整区不渲染（不制造"坏了"错觉） */
-    topTags(state): { name: string; count: number }[] {
-      const byTag = new Map<string, number>();
-      for (const x of state.items) {
-        if (!x.ai?.tags) continue;
-        for (const t of x.ai.tags) {
-          if (!t) continue;
-          byTag.set(t, (byTag.get(t) || 0) + 1);
-        }
-      }
-      return [...byTag.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)).slice(0, 8);
-    },
-  },
-
-  actions: {
-    /** 搜索词统一入口：侧栏输入框 / utools 子输入框 / ⌫ 清空 / 空态按钮四路共用 */
-    setSearch(q: string) {
-      this.search = q;
-      clearTimeout(searchTimer);
-      const terms = normTerms(q);
-      if (!terms) {
-        scanSeq += 1; // 作废在途回包，防陈旧 scanned/truncated 落地
-        lastTerms = "";
-        this.contentHits = new Set();
-        this.searchScanning = false;
-        this.searchTruncated = false;
-        this.searchScanned = 0;
+        items.value = arr;
         return;
       }
-      if (terms === lastTerms) return; // 词项没变：不重扫（防抖静默/首尾空格等）
-      // 换词：立即清旧命中（旧词的正文命中不能混进新查询结果），扫描回包前只剩标题/摘要快结果
-      this.contentHits = new Set();
-      this.searchTruncated = false;
-      this.searchScanned = 0;
-      searchTimer = window.setTimeout(() => this.runContentSearch(q, terms), 300);
-    },
-
-    /** 正文扫描（preload searchContent）；代际 token 丢弃过期回包，并发输入不叠跑两次 1.5s 预算扫描 */
-    async runContentSearch(q: string, terms: string) {
-      const seq = ++scanSeq;
-      lastTerms = terms;
-      this.searchScanning = true;
-      this.searchTruncated = false;
-      try {
-        const r = await window.airss.db.searchContent(q);
-        // 双重守卫：代际过期、或落地时用户已换词（防抖窗内旧扫描回包）都丢弃
-        if (seq !== scanSeq || normTerms(this.search) !== terms) return;
-        this.contentHits = new Set(r.ids);
-        this.searchScanned = r.scanned;
-        this.searchTruncated = r.truncated;
-      } catch {
-        if (seq === scanSeq) {
-          this.contentHits = new Set(); // 失败降级：仅剩标题/摘要快结果
-          lastTerms = ""; // 允许同词重试
+      if (ev?.kind === "state" && !ev.removed && Array.isArray(ev.patch)) {
+        const patchMap = new Map<string, any>();
+        for (const p of ev.patch) {
+          if (p && p._id) patchMap.set(p._id, p);
         }
-      } finally {
-        if (seq === scanSeq) this.searchScanning = false;
-      }
-    },
-
-    async loadAll() {
-      const [feeds, items] = await Promise.all([window.airss.db.getFeeds(), window.airss.db.snapshotItems()]);
-      // D2 排序口径：order 升序（首次拖拽前全员无 order → 保持 createdAt 序；此后新增源无 order 排末尾）
-      this.feeds = feeds.sort((a: Feed, b: Feed) => (a.order ?? Infinity) - (b.order ?? Infinity) || a.createdAt - b.createdAt);
-      this.items = items.sort((a: Item, b: Item) => b.pubTs - a.pubTs);
-      // feed.unreadCount 以 items 实态实算覆写（PLAN-FIX-UNREAD-REDISCOVER F1）：db 底数在
-      // setRead/markManyRead 后陈旧（只写 item 不写 feed），重启/新增订阅触发 loadAll 时曾把
-      // 徽标拉回旧值。getFeeds 的唯一消费方就是 loadAll——覆写后陈旧值不再上屏；db 侧仍由
-      // 下次刷新 ingestFeed / 云同步 recalcUnread 对齐，不为高频单篇阅读加重算落库。
-      const unreadBy = new Map<string, number>();
-      for (const it of items) if (!it.read) unreadBy.set(it.feedKey, (unreadBy.get(it.feedKey) || 0) + 1);
-      for (const f of this.feeds) f.unreadCount = unreadBy.get(f._id) || 0;
-      this.loaded = true;
-    },
-
-    /** 分类重指派（D1：重命名/合并/删除共用）。逐个落库（putRetry 自带冲突重试，feed 数量级小）；
-     *  当前过滤命中旧分类名时跟随或复位。删除分类 = reassignCategory(name, "默认") */
-    async reassignCategory(from: string, to: string) {
-      if (from === to) return; // 守卫：目标即来源（含「默认」删除「默认」）为空操作
-      const ui = useUiStore();
-      const targets = this.feeds.filter((f) => (f.category || "默认") === from);
-      for (const f of targets) {
-        await window.airss.db.saveFeed({ ...f, category: to });
-      }
-      await this.loadAll();
-      if (this.filter.kind === "category" && this.filter.value === from) {
-        const stillThere = this.feeds.some((f) => (f.category || "默认") === to);
-        this.filter = stillThere ? { kind: "category", value: to } : { kind: "all" };
-      }
-      ui.toast(`已将 ${targets.length} 个订阅移至「${to}」`);
-    },
-
-    /** 首次拖拽时给当前全部 feeds 按现序赋 order（只此一次批量落库，此后全员显式排序） */
-    async initOrderOnce() {
-      if (this.feeds.some((f) => typeof f.order === "number")) return;
-      let i = 0;
-      for (const f of this.feeds) {
-        f.order = i++;
-        await window.airss.db.saveFeed({ ...f });
-      }
-    },
-
-    /** 拖拽落位：只重排受影响区间 [min,max] 的 order 再逐个落库（避免"拖一个、全体重写"） */
-    async moveFeed(from: number, to: number) {
-      if (from === to || from < 0 || to < 0 || from >= this.feeds.length || to >= this.feeds.length) return;
-      const list = [...this.feeds];
-      const [moved] = list.splice(from, 1);
-      list.splice(to, 0, moved);
-      const lo = Math.min(from, to);
-      const hi = Math.max(from, to);
-      for (let i = lo; i <= hi; i++) {
-        const f = list[i];
-        f.order = i;
-        await window.airss.db.saveFeed({ ...f });
-      }
-      this.feeds = list;
-    },
-
-    /** AI 轻量批（二期）：刷新/导入后对近 7 天未处理文章补 tags/标题（后台池，preload 侧 ≤20 篇/批） */
-    queueAiBatch() {
-      const settings = useSettingsStore();
-      // aiAutoCount=0（自动摘要：关闭）= 不发任何自动 AI——后台轻量批同样受此门控
-      // （2026-09-10 实机反馈修复：此前只看 aiEnabled，用户关了自动摘要刷新后仍在调引擎）
-      if (!settings.aiEnabled || settings.aiAutoCount === 0) return;
-      const weekAgo = Date.now() - 7 * 86400e3; // T-08：首刷/导入只处理最近文章，历史存量不做 AI
-      const pending = this.items.filter((x) => x.aiStatus === "none" && x.pubTs > weekAgo).slice(0, 20);
-      if (!pending.length) return;
-      window.airss.ai
-        .batchEnrich(pending)
-        .then((r) => {
-          if (!r?.updated) return;
-          for (const u of r.updated) {
-            const i = this.items.findIndex((x) => x._id === u._id);
-            if (i >= 0) this.items[i] = u;
-          }
-        })
-        .catch(() => {}); // 后台任务失败不打扰阅读主流程
-    },
-
-    /** 到期源增量刷新（打开时/手动刷新共用）；manual=true 刷新全部忽略 refreshMin */
-    async refreshDue(manual = false) {
-      if (this.refreshing) return;
-      const settings = useSettingsStore();
-      const now = Date.now();
-      const due = this.feeds.filter((f) => {
-        if (manual) return true;
-        const min = f.refreshMin > 0 ? f.refreshMin : settings.refreshMin;
-        return !f.lastFetchedAt || now - f.lastFetchedAt > min * 60000; // lastFetchedAt null 一律视为到期
-      });
-      if (!due.length) return;
-
-      this.refreshing = true;
-      this.progress = { done: 0, total: due.length };
-      const ui = useUiStore();
-      try {
-        const summary = await window.airss.scheduler.refreshFeeds(due, {
-          onFeedDone: (feed: Feed, result: { ok: boolean; newCount: number; error: string | null }) => {
-            this.progress.done += 1;
-            // feed 文档已在 preload 侧推进（etag/unreadCount/lastError），此处同步内存
-            const idx = this.feeds.findIndex((x) => x._id === feed._id);
-            if (idx >= 0) this.feeds[idx] = { ...feed };
-            if (result.ok && result.newCount > 0 && feed.notify && settings.notifyEnabled) {
-              utools.showNotification(`${feed.title}：${result.newCount} 篇新文章`, "airss");
+        if (patchMap.size) {
+          let dirty = false;
+          const arr = items.value;
+          const next = arr.slice();
+          for (let i = 0; i < arr.length; i++) {
+            const p = patchMap.get(arr[i]._id);
+            if (!p) continue;
+            const cur = arr[i];
+            if (
+              (p.read !== undefined && cur.read !== !!p.read) ||
+              (p.starred !== undefined && cur.starred !== !!p.starred)
+            ) {
+              next[i] = {
+                ...cur,
+                ...(p.read !== undefined ? { read: !!p.read } : {}),
+                ...(p.starred !== undefined ? { starred: !!p.starred } : {}),
+              };
+              dirty = true;
             }
-          },
-          ...noopHooks,
-        });
-        await this.loadAll();
-        this.queueAiBatch(); // 轻量批：刷新完成后后台补 AI 标题/标签
-        // 刷新完成后触发保留清理（PLAN §4 时机约定）。按需预筛（PLAN-PERF-2 §2.2）：仅
-        // !starred 计数超 keep 的源才可能有 doomed——与 preload retentionClean 的
-        // filter(!starred)→sort(pubTs desc)→slice(keep) 口径互为充要
-        // （doomed 长度 = max(0, cnt(!starred) − keep)，见 db.js retentionClean 注释互指），
-        // 常态（keep ≥ 条目数）0 次调用；preload 侧逐条 get 复查仍是真相执行者
-        const keep = settings.keepPerFeed;
-        const nonStarred = new Map<string, number>();
-        for (const x of this.items) {
-          if (x.starred) continue;
-          nonStarred.set(x.feedKey, (nonStarred.get(x.feedKey) || 0) + 1);
-        }
-        for (const f of this.feeds) {
-          if ((nonStarred.get(f._id) || 0) > keep) await window.airss.db.retentionClean(f, keep);
-        }
-        if (manual) {
-          ui.toast(summary.newItems > 0 ? `刷新完成 · ${summary.newItems} 篇新文章` : "刷新完成 · 没有新文章");
-        }
-      } finally {
-        this.refreshing = false;
-      }
-    },
-
-    /** 发现确认后的落库 + 入库即首抓（fullText：摘要型源预开抓取全文，PLAN-V1.3 A；refreshMin：0=跟随全局） */
-    async addFeed(cand: { url: string; title: string; category: string; fullText?: boolean; refreshMin?: number }) {
-      const doc = await window.airss.sys.createFeed(cand);
-      this.feeds.push(doc);
-      const result = await window.airss.scheduler.refreshOne(doc);
-      await this.loadAll();
-      this.queueAiBatch(); // 入库即首抓后补 AI（首刷节流：仅最近 7 天）
-      return { doc, result };
-    },
-
-    async deleteFeed(feed: Feed) {
-      const ui = useUiStore();
-      const removed = await window.airss.db.deleteFeedCascade(feed);
-      if (this.filter.kind === "feed" && this.filter.value === feed._id) this.filter = { kind: "all" };
-      await this.loadAll();
-      if (ui.readerItemId && !this.items.some((x) => x._id === ui.readerItemId)) {
-        if (ui.view === "reader") ui.closeReader();
-        else ui.readerItemId = null;
-      }
-      ui.toast(`已删除「${feed.title}」· 清理 ${removed} 篇文章`);
-    },
-
-    async updateFeed(feed: Feed, patch: Partial<Feed>) {
-      Object.assign(feed, patch);
-      if (patch.title !== undefined) feed.titleLocked = true;
-      await window.airss.db.saveFeed(feed);
-      await this.loadAll();
-    },
-
-    async markRead(item: Item, read = true) {
-      if (item.read === read) return;
-      item.read = read; // 乐观翻转（<300ms 反馈）
-      const feed = this.feedMap.get(item.feedKey);
-      if (feed) feed.unreadCount = Math.max(0, feed.unreadCount + (read ? -1 : 1));
-      await window.airss.db.setRead(item._id, read);
-    },
-
-    async toggleStar(item: Item) {
-      item.starred = !item.starred;
-      await window.airss.db.setStarred(item._id, item.starred);
-    },
-
-    /** 手动 AI 摘要（自动摘要关闭时的逐篇按钮；列表卡片/行共用） */
-    async summarizeItem(item: Item) {
-      const settings = useSettingsStore();
-      const ui = useUiStore();
-      if (!settings.aiEnabled) return;
-      if (this.aiBusy.has(item._id) || item.ai?.summary) return;
-      this.aiBusy.add(item._id);
-      window.airss.ai.abort(); // single-handle 纪律：先回收在飞调用（阅读面流/预取）
-      try {
-        const r = await window.airss.ai.enrich(item._id, {});
-        if (r?.ok && r.item) {
-          const i = this.items.findIndex((x) => x._id === r.item!._id);
-          if (i >= 0) this.items[i] = r.item;
-        } else if (r?.ok && r.ai) {
-          // item 层直返不带文档：就地合并内存
-          const i = this.items.findIndex((x) => x._id === item._id);
-          if (i >= 0) {
-            this.items[i].ai = r.ai as Item["ai"];
-            this.items[i].aiStatus = "done";
-            const disp = r.ai.titleNorm || r.ai.titleZh;
-            if (disp && disp !== this.items[i].title) this.items[i].titleDisplay = disp;
           }
-        } else if (r?.aborted || r?.error === "ABORTED") {
-          // 被用户新调用抢占：安静结束
-        } else {
-          ui.toast(`AI 摘要失败：${r?.error === "QUOTA_EXHAUSTED" ? "今日额度已用完" : r?.error || "AI_FAILED"}`, "error");
+          if (dirty) {
+            items.value = next;
+            recomputeFeedUnreadLocal();
+          }
+          return;
         }
-      } catch (e: any) {
-        ui.toast("AI 摘要失败：" + String(e?.message || e), "error");
-      } finally {
-        this.aiBusy.delete(item._id);
       }
-    },
+      // 其余局部/同步变化由 read.getSnapshot 快速合并，不再做跨进程全量读取 itemfull
+      await loadAll();
+    });
+  }
 
-    async markAllRead() {
-      const ui = useUiStore();
-      const ids = this.filtered.filter((x) => !x.read).map((x) => x._id);
-      if (!ids.length) {
-        ui.toast("没有未读文章");
-        return;
-      }
-      await window.airss.db.markManyRead(ids);
-      // 内存同步即终态，不 loadAll（PLAN-PERF-2 §2.1）：省万级全量快照 IPC + reactive 重建。
-      // 安全：渲染层无直写 item 路径（setRead/setStarred/enrich 回写均 preload get-fresh 再写，
-      // 内存 _rev 过期无影响）；内存推 ≠ 落库——db 侧 unreadCount 由下次刷新/云同步
-      // recalcUnread 对账；loadAll 现也以 items 实算覆写徽标（F1），陈旧底数不再上屏。
-      // feed.unreadCount 不能「减 n」式推：底数可能陈旧虚高，全部已读后徽标会残留——
-      // 标记后一遍实算每源未读数直接赋值（与 categories/loadAll 同口径，2026-09-09 回归实锤修正）。
-      const idSet = new Set(ids); // ids 来自 filtered 视图：必须成员判定，绝不能全量置
-      const unreadByFeed = new Map<string, number>();
-      for (const x of this.items) {
-        if (idSet.has(x._id) && !x.read) x.read = true;
-        if (!x.read) unreadByFeed.set(x.feedKey, (unreadByFeed.get(x.feedKey) || 0) + 1);
-      }
-      for (const f of this.feeds) f.unreadCount = unreadByFeed.get(f._id) || 0;
-      ui.toast(`已将 ${ids.length} 篇文章标为已读`);
-    },
+  function setSearch(q: string) {
+    search.value = q;
+    clearTimeout(searchTimer);
+    const terms = normTerms(q);
+    if (!terms) {
+      scanSeq += 1;
+      lastTerms = "";
+      contentHits.value = new Set();
+      searchScanning.value = false;
+      searchTruncated.value = false;
+      searchScanned.value = 0;
+      return;
+    }
+    if (terms === lastTerms) return;
+    contentHits.value = new Set();
+    searchTruncated.value = false;
+    searchScanned.value = 0;
+    searchTimer = window.setTimeout(() => runContentSearch(q, terms), 150);
+  }
 
-    async retryFeed(feed: Feed) {
-      const ui = useUiStore();
-      const r = await window.airss.scheduler.refreshOne(feed);
-      await this.loadAll();
-      if (r.ok) ui.toast(`「${feed.title}」同步成功`);
-      else ui.toast(`同步失败：${r.error}`, "error");
-    },
+  async function runContentSearch(q: string, terms: string) {
+    const seq = ++scanSeq;
+    lastTerms = terms;
+    searchScanning.value = true;
+    searchTruncated.value = false;
+    try {
+      const r = await window.airss.db.searchContent(q);
+      if (seq !== scanSeq || normTerms(search.value) !== terms) return;
+      contentHits.value = new Set(r.ids);
+      searchScanned.value = r.scanned;
+      searchTruncated.value = !!r.truncated;
+    } catch {
+      if (seq === scanSeq) {
+        contentHits.value = new Set();
+        lastTerms = "";
+      }
+    } finally {
+      if (seq === scanSeq) searchScanning.value = false;
+    }
+  }
 
-    /** OPML 导入：分批 50 源/批（进度可见；已存在跳过） */
-    async importOpml(xmlText: string) {
-      const ui = useUiStore();
-      let parsed;
-      try {
-        parsed = window.airss.opml.parse(xmlText);
-      } catch (e: any) {
-        ui.toast("OPML 解析失败：" + (e?.message || e), "error");
-        return;
-      }
-      if (!parsed.length) {
-        ui.toast("OPML 中没有找到订阅源");
-        return;
-      }
-      const existing = new Set(this.feeds.map((f) => f.url));
-      const fresh = parsed.filter((p) => !existing.has(p.xmlUrl));
-      this.opmlImporting = { done: 0, total: fresh.length };
-      let i = 0;
-      try {
-        for (const p of fresh) {
-          await window.airss.sys.createFeed({ url: p.xmlUrl, title: p.title, category: p.category, siteUrl: p.siteUrl });
-          i += 1;
-          this.opmlImporting = { done: i, total: fresh.length };
-        }
-      } catch (e: any) {
-        ui.toast(`导入中断（已完成 ${i}/${fresh.length}）：` + String(e?.message || e), "error");
-      } finally {
-        this.opmlImporting = null;
-      }
-      await this.loadAll();
-      if (i > 0 || fresh.length === 0) {
-        ui.toast(`导入完成 · 新增 ${i} 个源${parsed.length - fresh.length ? `，跳过 ${parsed.length - fresh.length} 个已存在` : ""}${i > 0 ? "，正在抓取首批文章" : ""}`);
-      }
-      if (i > 0) this.refreshDue(); // 后台首抓
-    },
+  async function loadAll() {
+    wirePreloadEvents();
+    const snap = await window.airss.read.getSnapshot();
+    feeds.value = snap.feeds;
+    items.value = snap.items;
+    recomputeFeedUnreadLocal();
+    loaded.value = true;
+  }
 
-    async exportOpml(filePath: string) {
-      const ui = useUiStore();
-      try {
-        window.airss.sys.writeTextFile(filePath, window.airss.opml.build(this.feeds));
-        ui.toast(`已导出 ${this.feeds.length} 个订阅源`);
-      } catch (e: any) {
-        ui.toast("导出 OPML 失败：" + String(e?.message || e), "error");
-      }
-    },
+  async function reassignCategory(from: string, to: string) {
+    if (from === to) return;
+    const ui = useUiStore();
+    const targets = regularFeeds.value.filter((f) => (f.category || "默认") === from);
+    for (const f of targets) {
+      f.category = to;
+      await window.airss.db.saveFeed({ ...f, category: to });
+    }
+    if (filter.value.kind === "category" && filter.value.value === from) {
+      const stillThere = regularFeeds.value.some((f) => (f.category || "默认") === to);
+      filter.value = stillThere ? { kind: "category", value: to } : { kind: "all" };
+    }
+    ui.toast(`已将 ${targets.length} 个订阅移至「${to}」`);
+  }
 
-    async clearAllData() {
-      const ui = useUiStore();
-      await window.airss.db.clearAll();
-      await this.loadAll();
-      this.filter = { kind: "all" };
-      this.setSearch("");
-      ui.closeReader();
-      ui.toast("已清空所有数据");
-    },
-  },
+  async function initOrderOnce() {
+    if (regularFeeds.value.some((f) => typeof f.order === "number")) return;
+    let i = 0;
+    for (const f of regularFeeds.value) {
+      f.order = i++;
+      await window.airss.db.saveFeed({ ...f });
+    }
+  }
+
+  async function moveFeed(from: number, to: number) {
+    const reg = [...regularFeeds.value];
+    if (from === to || from < 0 || to < 0 || from >= reg.length || to >= reg.length) return;
+    const [moved] = reg.splice(from, 1);
+    reg.splice(to, 0, moved);
+    const lo = Math.min(from, to);
+    const hi = Math.max(from, to);
+    for (let i = lo; i <= hi; i++) {
+      const f = reg[i];
+      f.order = i;
+      await window.airss.db.saveFeed({ ...f });
+    }
+    const specials = feeds.value.filter((f) => f.special === "later" || f._id === "feed:__later__");
+    feeds.value = [...reg, ...specials];
+  }
+
+  async function refreshDue(manual = false) {
+    if (refreshing.value) return;
+    const ui = useUiStore();
+    refreshing.value = true;
+    try {
+      const summary = await window.airss.refresh.due({ manual, trigger: manual ? "manual" : "enter" });
+      if (manual) {
+        ui.toast(summary.newItems > 0 ? `刷新完成 · ${summary.newItems} 篇新文章` : "刷新完成 · 没有新文章");
+      }
+    } finally {
+      refreshing.value = false;
+    }
+  }
+
+  async function addFeed(cand: { url: string; title: string; category: string; fullText?: boolean; refreshMin?: number }) {
+    const doc = await window.airss.sys.createFeed(cand);
+    feeds.value = [...feeds.value, doc];
+    const result = await window.airss.refresh.one(doc._id);
+    const fSnap = await window.airss.db.getFeeds();
+    feeds.value = fSnap.sort((a: Feed, b: Feed) => (a.order ?? Infinity) - (b.order ?? Infinity) || a.createdAt - b.createdAt);
+    const allItems = await window.airss.db.snapshotItems();
+    items.value = allItems.sort((a: Item, b: Item) => b.pubTs - a.pubTs);
+    recomputeFeedUnreadLocal();
+    return { doc, result };
+  }
+
+  async function deleteFeed(feed: Feed) {
+    const ui = useUiStore();
+    const removed = await window.airss.db.deleteFeedCascade(feed);
+    if (filter.value.kind === "feed" && filter.value.value === feed._id) filter.value = { kind: "all" };
+    feeds.value = feeds.value.filter((f) => f._id !== feed._id);
+    items.value = items.value.filter((x) => x.feedKey !== feed._id);
+    recomputeFeedUnreadLocal();
+    if (ui.readerItemId && !items.value.some((x) => x._id === ui.readerItemId)) {
+      if (ui.view === "reader") ui.closeReader();
+      else ui.readerItemId = null;
+    }
+    ui.toast(`已删除「${feed.title}」· 清理 ${removed} 篇文章`);
+  }
+
+  async function updateFeed(feed: Feed, patch: Partial<Feed>) {
+    Object.assign(feed, patch);
+    if (patch.title !== undefined) feed.titleLocked = true;
+    const saved = await window.airss.db.saveFeed({ ...feed });
+    if (saved) {
+      const idx = feeds.value.findIndex((f) => f._id === feed._id);
+      if (idx >= 0) feeds.value[idx] = { ...feeds.value[idx], ...saved };
+      recomputeFeedUnreadLocal();
+    }
+  }
+
+  async function markRead(item: Item, read = true) {
+    if (item.read === read) return;
+    replaceItemInPlace({ ...item, read });
+    await window.airss.db.setRead(item._id, read);
+  }
+
+  async function toggleStar(item: Item) {
+    const nextStar = !item.starred;
+    replaceItemInPlace({ ...item, starred: nextStar });
+    await window.airss.db.setStarred(item._id, nextStar);
+  }
+
+  async function summarizeItem(item: Item) {
+    const ui = useUiStore();
+    if (!settings.aiEnabled) return;
+    if (aiBusy.value.has(item._id) || item.ai?.summary) return;
+    aiBusy.value.add(item._id);
+    window.airss.ai.abort();
+    try {
+      const r = await window.airss.ai.enrich(item._id, {});
+      if (r?.ok && r.item) {
+        replaceItemInPlace(r.item);
+      } else if (r?.ok && r.ai) {
+        const next: Item = {
+          ...item,
+          ai: r.ai as Item["ai"],
+          aiStatus: "done",
+          titleDisplay: r.ai.titleNorm || r.ai.titleZh || item.title,
+        };
+        replaceItemInPlace(next);
+      } else if (r?.aborted || r?.error === "ABORTED") {
+        // quiet
+      } else {
+        ui.toast(`AI 摘要失败：${r?.error === "QUOTA_EXHAUSTED" ? "今日额度已用完" : r?.error || "AI_FAILED"}`, "error");
+      }
+    } catch (e: any) {
+      ui.toast("AI 摘要失败：" + String(e?.message || e), "error");
+    } finally {
+      aiBusy.value.delete(item._id);
+    }
+  }
+
+  async function markAllRead() {
+    const ui = useUiStore();
+    const ids = filtered.value.filter((x) => !x.read).map((x) => x._id);
+    if (!ids.length) {
+      ui.toast("没有未读文章");
+      return;
+    }
+    await window.airss.db.markManyRead(ids);
+    const idSet = new Set(ids);
+    const arr = items.value.slice();
+    for (let i = 0; i < arr.length; i++) {
+      if (idSet.has(arr[i]._id) && !arr[i].read) {
+        arr[i] = { ...arr[i], read: true };
+      }
+    }
+    items.value = arr;
+    recomputeFeedUnreadLocal();
+    ui.toast(`已将 ${ids.length} 篇文章标为已读`);
+  }
+
+  async function retryFeed(feed: Feed) {
+    const ui = useUiStore();
+    const r = await window.airss.refresh.one(feed._id);
+    const fSnap = await window.airss.db.getFeeds();
+    feeds.value = fSnap.sort((a: Feed, b: Feed) => (a.order ?? Infinity) - (b.order ?? Infinity) || a.createdAt - b.createdAt);
+    const allItems = await window.airss.db.snapshotItems();
+    items.value = allItems.sort((a: Item, b: Item) => b.pubTs - a.pubTs);
+    recomputeFeedUnreadLocal();
+    if (r.ok) ui.toast(`「${feed.title}」同步成功`);
+    else ui.toast(`同步失败：${r.error}`, "error");
+  }
+
+  async function importOpml(xmlText: string) {
+    const ui = useUiStore();
+    let parsed;
+    try {
+      parsed = window.airss.opml.parse(xmlText);
+    } catch (e: any) {
+      ui.toast("OPML 解析失败：" + (e?.message || e), "error");
+      return;
+    }
+    if (!parsed.length) {
+      ui.toast("OPML 中没有找到订阅源");
+      return;
+    }
+    const existing = new Set(feeds.value.map((f) => f.url));
+    const fresh = parsed.filter((p) => !existing.has(p.xmlUrl));
+    opmlImporting.value = { done: 0, total: fresh.length };
+    let i = 0;
+    try {
+      for (const p of fresh) {
+        await window.airss.sys.createFeed({ url: p.xmlUrl, title: p.title, category: p.category, siteUrl: p.siteUrl });
+        i += 1;
+        opmlImporting.value = { done: i, total: fresh.length };
+      }
+    } catch (e: any) {
+      ui.toast(`导入中断（已完成 ${i}/${fresh.length}）：` + String(e?.message || e), "error");
+    } finally {
+      opmlImporting.value = null;
+    }
+    await loadAll();
+    if (i > 0 || fresh.length === 0) {
+      ui.toast(`导入完成 · 新增 ${i} 个源${parsed.length - fresh.length ? `，跳过 ${parsed.length - fresh.length} 个已存在` : ""}${i > 0 ? "，正在抓取首批文章" : ""}`);
+    }
+    if (i > 0) void refreshDue();
+  }
+
+  async function exportOpml() {
+    const ui = useUiStore();
+    try {
+      const res = window.airss.sys.saveOpmlWithDialog(window.airss.opml.build(regularFeeds.value));
+      if (res?.saved) {
+        ui.toast(`已导出 ${regularFeeds.value.length} 个订阅源`);
+      }
+    } catch (e: any) {
+      ui.toast("导出 OPML 失败：" + String(e?.message || e), "error");
+    }
+  }
+
+  async function clearAllData() {
+    const ui = useUiStore();
+    await window.airss.db.clearAll();
+    await loadAll();
+    filter.value = { kind: "all" };
+    setSearch("");
+    ui.closeReader();
+    ui.toast("已清空所有数据");
+  }
+
+  return {
+    feeds,
+    regularFeeds,
+    items,
+    loaded,
+    refreshing,
+    progress,
+    filter,
+    search,
+    contentHits,
+    searchScanning,
+    searchScanned,
+    searchTruncated,
+    aiBusy,
+    opmlImporting,
+    mutePaused,
+    feedMap,
+    categories,
+    stats,
+    filtered,
+    mutedInView,
+    unreadTopTitles,
+    topTags,
+    setSearch,
+    loadAll,
+    reassignCategory,
+    initOrderOnce,
+    moveFeed,
+    refreshDue,
+    addFeed,
+    deleteFeed,
+    updateFeed,
+    markRead,
+    toggleStar,
+    summarizeItem,
+    markAllRead,
+    retryFeed,
+    importOpml,
+    exportOpml,
+    clearAllData,
+    replaceItemInPlace,
+  };
 });

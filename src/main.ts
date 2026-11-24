@@ -50,7 +50,7 @@ if (hasUtools && !hasAirss) {
     "window.airss 未注入：preload/index.js 或其依赖在 uTools 环境加载报错。<br>" +
       "请打开开发者工具 Console 查看具体报错（重点看 preload/services/ 的 require 错误），修复后重载插件。"
   );
-} else if (!hasUtools && !hasAirss) {
+} else if (import.meta.env.DEV && !hasUtools && !hasAirss) {
   import("./lib/mock").then((m) => {
     m.installMock();
     boot();

@@ -37,37 +37,20 @@ function submitPrompt() {
   }
 }
 
-let dbPullTimer: number | undefined;
 let initPromise: Promise<void> | null = null;
 let lastSubInputText = "";
+let unsubs: Array<() => void> = [];
 
-/** 初始化数据 + 云同步状态处理（PLAN §5.1：replicateStateFromCloud 三态；单飞锁防 onMounted 与首次 onPluginEnter 并发双跑） */
+/** 初始化数据（单飞锁防重复加载；云同步与 7 项宿主事件统一由 preload/lifecycle.js 协调） */
 async function initData() {
   if (initPromise) return initPromise;
   initPromise = (async () => {
-    let state: 0 | 1 | null = null;
-    try {
-      state = utools.db.replicateStateFromCloud();
-    } catch {
-      state = null;
-    }
-    if (state === 1) {
-      // 同步中：等待 onDbPull 落地（带 1.5s 兜底），期间保持骨架
-      await new Promise<void>((resolve) => {
-        const t = window.setTimeout(resolve, 1500);
-        (window as any).__resolveDbSync = () => {
-          clearTimeout(t);
-          resolve();
-        };
-      });
-    }
     await data.loadAll();
-    data.refreshDue(); // 打开即增量刷新，渲染不等刷新完成
   })();
   try {
     await initPromise;
   } finally {
-    if (!data.loaded) initPromise = null; // 初始化失败时释放锁允许重试
+    if (!data.loaded) initPromise = null;
   }
 }
 
@@ -77,9 +60,7 @@ watchEffect(() => {
   document.documentElement.style.setProperty("--reading-fs", FONT_STEPS[settings.fontLevel] ?? "16px");
 });
 
-// ---- 分离窗窄幅自适应（2026-09-11 实机：默认尺寸只剩两列，阅读列被裁出画）----
-// 三栏最小宽 280+360+440=1080；窗口更窄时侧栏自动降为 64px 图标轨、列表/阅读列最低宽下调
-// （CSS 见 .app.detached.sb-auto），三栏恒可见。只影响展示，不写 sidebarCollapsed 设置，拖宽即还原
+// ---- 分离窗窄幅自适应 ----
 const SB_NARROW_AT = 1080;
 function onWinResize() {
   ui.winNarrow = window.innerWidth < SB_NARROW_AT;
@@ -87,61 +68,58 @@ function onWinResize() {
 const sbAuto = computed(() => ui.narrowDetached);
 const sbCollapsedEff = computed(() => settings.sidebarCollapsed || sbAuto.value);
 
-function wireUtools() {
-  utools.onPluginEnter(({ code, payload }) => {
-    if (!data.loaded) initData();
-    if (code === "add_feed" && payload) {
-      ui.modal = { type: "addFeed", presetUrl: String(payload) };
-    }
-  });
+function wireSubInput() {
+  try {
+    utools.setSubInput((details: { text?: string } | string) => {
+      const text = typeof details === "string" ? details : String(details?.text ?? "");
+      lastSubInputText = text;
+      if (data.search !== text) data.setSearch(text);
+    }, "搜索文章…");
+  } catch {
+    /* 浏览器或分离窗无子输入框时忽略 */
+  }
+}
 
-  utools.onPluginOut((isKill) => {
-    // 中断纪律：仅进程被杀才硬中断；隐藏后台静默完成本批（PLAN §5.1）
-    if (isKill) {
-      window.airss.scheduler.abort();
-      window.airss.ai.abort(); // 进行中的 AI 流调用一并中止
-    }
-  });
-
-  utools.onPluginDetach(() => {
+async function handleLifecycleAction(type: string, payload: any) {
+  if (type === "detached") {
     ui.detached = true;
-    onWinResize(); // 防御：若宿主分离时复用渲染器且不派发 resize，主动重算窄幅（否则携带主窗宽度的旧值）
+    onWinResize();
     try {
-      utools.removeSubInput(); // 分离窗无宿主子输入框
+      utools.removeSubInput?.();
     } catch {
       /* noop */
     }
-  });
+    return;
+  }
+  if (type === "open-add-feed") {
+    ui.modal = { type: "addFeed", presetUrl: String(payload?.presetUrl || "") };
+    return;
+  }
+  if (type === "open-item") {
+    await initData();
+    const id = String(payload?.itemId || "");
+    const it = id ? data.items.find((x) => x._id === id) : null;
+    if (it) {
+      void data.markRead(it, true);
+      ui.openReader(it._id);
+    }
+    return;
+  }
+  if (type === "switch-filter" && payload?.kind) {
+    await initData();
+    data.filter = { kind: payload.kind, value: payload.value };
+    ui.cursor = 0;
+    ui.view = "main";
+  }
+}
 
-  utools.onDbPull(() => {
-    // 云同步落地：防抖全量重载 + unreadCount 对账（简版，二期做完整合并矩阵）
-    clearTimeout(dbPullTimer);
-    dbPullTimer = window.setTimeout(async () => {
-      await data.loadAll();
-      for (const f of data.feeds) await window.airss.db.recalcUnread(f);
-      await data.loadAll();
-      const r = (window as any).__resolveDbSync;
-      if (r) r();
-    }, 300);
-  });
-
-  utools.setSubInput((details: { text?: string } | string) => {
-    // uTools 官方回调入参为 { text } 对象（兼容极端旧环境/mock 传 string）
-    const text = typeof details === "string" ? details : String(details?.text ?? "");
-    lastSubInputText = text;
-    if (data.search !== text) data.setSearch(text); // 与侧栏搜索框同源（统一走 setSearch：防抖 + 正文检索）
-  }, "搜索文章…");
-
-  utools.onMainPush(
-    () => {
-      const n = data.stats.unread;
-      const titles = data.unreadTopTitles
-        .map((t) => (t.length > 30 ? t.slice(0, 30) + "…" : t))
-        .join(" · ");
-      return [{ icon: "logo.png", title: "AiRSS", text: titles ? `${n} 篇未读 · ${titles}`.slice(0, 100) : "没有未读文章" }];
-    },
-    () => true
-  );
+function wirePreloadLifecycle() {
+  if (typeof window.airss?.on === "function") {
+    unsubs.push(window.airss.on("open-add-feed", (p) => void handleLifecycleAction("open-add-feed", p)));
+    unsubs.push(window.airss.on("open-item", (p) => void handleLifecycleAction("open-item", p)));
+    unsubs.push(window.airss.on("switch-filter", (p) => void handleLifecycleAction("switch-filter", p)));
+    unsubs.push(window.airss.on("detached", (p) => void handleLifecycleAction("detached", p)));
+  }
 }
 
 // 侧栏搜索 / ⌫ 清空时反向同步主窗子输入框，避免顶部残留旧搜索词
@@ -265,14 +243,23 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   settings.load();
   theme.init();
-  wireUtools();
-  initData();
+  wireSubInput();
+  wirePreloadLifecycle();
   document.addEventListener("keydown", onKeydown);
   onWinResize();
   window.addEventListener("resize", onWinResize);
+
+  const pending = window.airss.lifecycle?.consumePendingActions?.();
+  if (pending?.detached) await handleLifecycleAction("detached", { detached: true });
+  await initData();
+  if (pending?.actions?.length) {
+    for (const act of pending.actions) {
+      await handleLifecycleAction(act.type, act.payload);
+    }
+  }
 
   // dev only：mock 层状态直达事件（uTools 内不会触发）
   window.addEventListener("airss-mock-view", (e) => {
@@ -282,7 +269,7 @@ onMounted(() => {
     else if (v === "addfeed") ui.modal = { type: "addFeed" };
     else if (v === "reader" && data.filtered[0]) {
       const it = data.filtered[0];
-      data.markRead(it, true);
+      void data.markRead(it, true);
       ui.openReader(it._id);
     }
   });
@@ -290,6 +277,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener("keydown", onKeydown);
   window.removeEventListener("resize", onWinResize);
+  for (const off of unsubs) off();
+  unsubs = [];
 });
 </script>
 

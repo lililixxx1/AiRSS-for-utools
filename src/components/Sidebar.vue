@@ -3,6 +3,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useDataStore } from "../stores/data";
 import { useSettingsStore } from "../stores/settings";
 import { useUiStore } from "../stores/ui";
+import { useFeedDrag } from "../composables/useFeedDrag";
+import { useCategoryMenu } from "../composables/useCategoryMenu";
 import { I } from "./icons";
 import { hostOf, firstChar } from "../lib/format";
 import { RECOMMEND_ALL } from "../lib/recommend";
@@ -15,7 +17,19 @@ const ui = useUiStore();
 
 const searchInput = ref<HTMLInputElement | null>(null);
 const railSearchInput = ref<HTMLInputElement | null>(null);
-/** Ctrl+F 入口：侧栏展开直focus；折叠态（含窄幅自动折叠）唤起轨内浮层搜索，不再静默落空 */
+
+const btnMuted = "sb-btn";
+const autoNarrow = computed(() => ui.narrowDetached);
+const drawerOpen = computed(() => autoNarrow.value && ui.sbDrawer);
+const collapsed = computed(() => (settings.sidebarCollapsed || autoNarrow.value) && !drawerOpen.value);
+
+watch(collapsed, (c) => {
+  if (!c) ui.railSearch = false;
+});
+watch(autoNarrow, (n) => {
+  if (!n) ui.sbDrawer = false;
+});
+
 function focusSearch() {
   if (searchInput.value) {
     searchInput.value.focus();
@@ -28,10 +42,6 @@ function focusSearch() {
 }
 defineExpose({ focusSearch });
 
-/** 轨内搜索钮：折叠态列表搜索唯一入口（PLAN-WHEEL-FIND v1.7 撤阅读态改道——文内搜索入口=AI 轮盘第四项/Ctrl+F，
- *  侧栏族恒为列表搜索）。开面板顺关文内搜索：两搜索面双向互斥（S2 纪律，审核 P0-1）。
- *  已知局限：非分离窗阅读态列表被阅读层盖住，输入=无反馈过滤（⌫ 关阅读即见，同展开态搜索框 C20 记载）；
- *  data.search 无命中时 filtered 为空，阅读态 j/k/Enter/m/s 静默失效，清词恢复 */
 function toggleRailSearch() {
   ui.railSearch = !ui.railSearch;
   if (ui.railSearch) {
@@ -40,7 +50,6 @@ function toggleRailSearch() {
   }
 }
 
-/** 轨内搜索输入框 ⌫：空时关面板，非空是编辑键（2026-09-12 Esc 全线换 ⌫，勿用 .prevent 修饰符——无条件生效会拦掉编辑态） */
 function onRailSearchKey(e: KeyboardEvent) {
   if (e.key !== "Backspace" || data.search !== "") return;
   e.preventDefault();
@@ -49,31 +58,14 @@ function onRailSearchKey(e: KeyboardEvent) {
 }
 
 const menuOpenId = ref<string | null>(null);
-const catMenuOpen = ref<string | null>(null);
-const recMenuOpen = ref(false); // 推荐入口 ⋯ 菜单（v1.9）
+const recMenuOpen = ref(false);
 const editingFeed = ref<Feed | null>(null);
 const opmlFileInput = ref<HTMLInputElement | null>(null);
 
-// ---- DnD 手动排序（PLAN-V1.3 D2）：HTML5 拖拽；重排零过渡（布局过渡会拖死渲染线程）----
-const dragFrom = ref(-1);
-const dragOver = ref(-1);
-function onDragStart(i: number) {
-  if (collapsed.value) return; // 折叠态禁拖（首字徽标形态无拖拽语义）
-  dragFrom.value = i;
-}
-function onDragEnter(i: number) {
-  if (dragFrom.value >= 0 && dragFrom.value !== i) dragOver.value = i;
-}
-async function onDrop(i: number) {
-  const from = dragFrom.value;
-  dragFrom.value = -1;
-  dragOver.value = -1;
-  if (from < 0 || from === i) return;
-  await data.initOrderOnce(); // 首次拖拽：先按现序批量赋 order
-  await data.moveFeed(from, i);
-}
+const { dragFrom, dragOver, onDragStart, onDragEnter, onDrop, onDragEnd } = useFeedDrag(collapsed);
+const { catMenuOpen, toggleCatMenu, closeCatMenu, renameCategory, mergeCategory, askDeleteCategory } = useCategoryMenu();
 
-function select(kind: "all" | "unread" | "starred") {
+function select(kind: "all" | "unread" | "starred" | "later") {
   data.filter = { kind };
   ui.cursor = 0;
   navFold();
@@ -99,57 +91,8 @@ function toggleMenu(f: Feed) {
 }
 function closeMenu() {
   menuOpenId.value = null;
-  catMenuOpen.value = null;
+  closeCatMenu();
   recMenuOpen.value = false;
-}
-
-// ---- 分类管理（PLAN-V1.3 D1）：重命名 / 合并 / 删除（成员归「默认」）----
-function toggleCatMenu(name: string) {
-  catMenuOpen.value = catMenuOpen.value === name ? null : name;
-}
-function renameCategory(name: string) {
-  catMenuOpen.value = null;
-  ui.modal = {
-    type: "prompt",
-    title: "重命名分类",
-    label: `将「${name}」重命名为：`,
-    initial: name,
-    onOk: (v) => {
-      if (!v || v === name) return;
-      if (data.categories.some((c) => c.name === v)) {
-        ui.toast(`已存在「${v}」分类，如需合并请用「合并到…」`, "error");
-        return;
-      }
-      data.reassignCategory(name, v);
-    },
-  };
-}
-function mergeCategory(name: string) {
-  catMenuOpen.value = null;
-  const others = data.categories.map((c) => c.name).filter((n) => n !== name);
-  if (!others.length) {
-    ui.toast("没有其他分类可合并");
-    return;
-  }
-  ui.modal = {
-    type: "prompt",
-    title: "合并分类",
-    label: `将「${name}」的全部订阅合并到：`,
-    suggestions: others,
-    onOk: (v) => {
-      if (v && v !== name) data.reassignCategory(name, v);
-    },
-  };
-}
-function askDeleteCategory(name: string) {
-  catMenuOpen.value = null;
-  const count = data.feeds.filter((f) => (f.category || "默认") === name).length;
-  ui.modal = {
-    type: "confirm",
-    title: "删除分类？",
-    body: `「${name}」的 ${count} 个订阅将移入「默认」分类，订阅与文章不受影响。`,
-    onOk: () => data.reassignCategory(name, "默认"),
-  };
 }
 
 function askDelete(f: Feed) {
@@ -173,25 +116,19 @@ async function onOpmlFile(e: Event) {
   await data.importOpml(text);
 }
 
-/** 导入 OPML：uTools 宿主用原生文件对话框（HTML file input 在宿主内不可靠）；浏览器 dev 走 file input */
 function pickOpml() {
   const ut = (window as any).utools;
   const isHost = ut && typeof ut.showOpenDialog === "function" && ut.getAppVersion && ut.getAppVersion() !== "browser-mock";
   if (isHost) {
-    const picked = ut.showOpenDialog({
-      title: "导入 OPML",
-      filters: [{ name: "OPML", extensions: ["opml", "xml"] }],
-      properties: ["openFile"],
-    });
-    const path = Array.isArray(picked) ? picked[0] : picked;
-    if (path) {
-      try {
-        data.importOpml(window.airss.sys.readTextFile(path));
-      } catch (e: any) {
-        ui.toast("读取 OPML 文件失败：" + String(e?.message || e), "error");
+    try {
+      const res = window.airss.sys.pickOpmlText();
+      if (res?.picked && res.text) {
+        data.importOpml(res.text);
       }
+    } catch (e: any) {
+      ui.toast("读取 OPML 文件失败：" + String(e?.message || e), "error");
     }
-    return; // 取消选择：安静返回
+    return;
   }
   opmlFileInput.value?.click();
 }
@@ -200,7 +137,6 @@ function toggleCollapse() {
   settings.set("sidebarCollapsed", !settings.sidebarCollapsed);
 }
 
-/** 轨内展开钮：宽幅=写设置真展开；窄幅=开浮层抽屉（窗口装不下展开态三栏，280+300+340>800，不能占格） */
 function onExpandClick() {
   if (autoNarrow.value) {
     ui.sbDrawer = true;
@@ -209,7 +145,7 @@ function onExpandClick() {
     toggleCollapse();
   }
 }
-/** 展开态折叠钮：抽屉态=收抽屉（不动设置）；常规=写设置 */
+
 function onCollapseClick() {
   if (drawerOpen.value) ui.sbDrawer = false;
   else toggleCollapse();
@@ -219,41 +155,25 @@ const onDocClick = () => closeMenu();
 onMounted(() => document.addEventListener("click", onDocClick));
 onBeforeUnmount(() => document.removeEventListener("click", onDocClick));
 
-const btnMuted = "sb-btn";
-// 折叠态 = 用户设置 ∪ 分离窗窄幅自动（App.vue onWinResize 维护 winNarrow；自动折叠不写设置，拖宽即还原）
-const autoNarrow = computed(() => ui.narrowDetached);
-// 窄幅抽屉：展开改 fixed 浮层盖在列表列上方（网格不动），关闭即回图标轨
-const drawerOpen = computed(() => autoNarrow.value && ui.sbDrawer);
-const collapsed = computed(() => (settings.sidebarCollapsed || autoNarrow.value) && !drawerOpen.value);
-// 侧栏展开时搜索回到常驻输入框，浮层态复位
-watch(collapsed, (c) => {
-  if (!c) ui.railSearch = false;
-});
-// 拖宽后侧栏回到常驻形态，抽屉失去存在意义，自动关
-watch(autoNarrow, (n) => {
-  if (!n) ui.sbDrawer = false;
-});
-/** 推荐页入口：覆盖内容列；抽屉态顺手收抽屉 */
 function openRecommend() {
   recMenuOpen.value = false;
   ui.openRecommend();
   navFold();
 }
-/** 推荐入口右侧 ⋯ 菜单（与订阅行/分类行同一交互，2026-10-30 用户要求） */
+
 function toggleRecMenu() {
   recMenuOpen.value = !recMenuOpen.value;
 }
-/** 隐藏推荐入口 = 关同一个设置项（设置页是唯一「重新开启」入口，不造第二套状态） */
+
 function hideRecommend() {
   recMenuOpen.value = false;
   settings.set("recommendEnabled", false);
-  if (ui.view === "recommend") ui.view = "main"; // 正停在推荐页时退回列表，避免看着一个已隐藏功能的页面
+  if (ui.view === "recommend") ui.view = "main";
   ui.toast("已隐藏推荐入口，可在「设置 · 外观」重新开启");
 }
-/** 推荐源总数（入口右上的数字，来自共享清单，避免与推荐页两处口径分叉） */
+
 const recommendTotal = RECOMMEND_ALL.length;
 
-/** 抽屉内的导航动作（选源/分类/标签/统计/进设置）完成后收抽屉 */
 function navFold() {
   if (ui.sbDrawer) ui.sbDrawer = false;
 }
@@ -319,6 +239,31 @@ function navFold() {
         </button>
       </div>
 
+      <!-- 固定「稍后读」入口（v2：独立于订阅源排序，mainHide URL 正则直存） -->
+      <button
+        v-if="!collapsed"
+        class="later-entry"
+        :class="{ on: data.filter.kind === 'later' }"
+        :title="`稍后读：共 ${data.stats.later} 篇（未读 ${data.stats.laterUnread}）`"
+        @click="select('later')"
+      >
+        <I.clock />
+        <span class="later-label">稍后读</span>
+        <span v-if="data.stats.laterUnread || data.stats.later" class="later-count num">
+          {{ data.stats.laterUnread || data.stats.later }}
+        </span>
+      </button>
+      <button
+        v-else
+        class="icon-btn rail-later-btn"
+        :class="{ on: data.filter.kind === 'later' }"
+        aria-label="稍后读"
+        :title="`稍后读 (${data.stats.laterUnread}/${data.stats.later})`"
+        @click="select('later')"
+      >
+        <I.clock />
+      </button>
+
       <!-- 订阅源（D2：拖拽排序；指示线只动 border，禁一切布局过渡） -->
       <div class="sec-head" v-if="!collapsed">
         <span>订阅源</span>
@@ -362,7 +307,7 @@ function navFold() {
       </div>
       <div class="feed-list" role="list">
         <div
-          v-for="(f, i) in data.feeds"
+          v-for="(f, i) in data.regularFeeds"
           :key="f._id"
           class="feed-item"
           :class="{ on: data.filter.kind === 'feed' && data.filter.value === f._id, 'drop-before': dragOver === i && dragFrom < i, 'drop-after': dragOver === i && dragFrom > i, dragging: dragFrom === i }"
@@ -375,7 +320,7 @@ function navFold() {
           @dragenter.prevent="onDragEnter(i)"
           @dragover.prevent
           @drop.prevent="onDrop(i)"
-          @dragend="dragFrom = -1; dragOver = -1"
+          @dragend="onDragEnd"
         >
           <template v-if="!collapsed">
             <div class="fi-body">
@@ -550,6 +495,24 @@ html[data-theme="dark"] .rail-search-panel { background: var(--bg-elevated); }
 .stat:hover { background: var(--bg-card-hover); }
 .stat.on { background: var(--bg-selected); border-color: transparent; }
 .stat:active { background: var(--bg-active); }
+
+.later-entry {
+  width: 100%; margin-top: 8px; height: 34px; padding: 0 10px;
+  border-radius: var(--r-md); background: var(--bg-panel); border: 1px solid var(--border);
+  box-shadow: var(--shadow-1); color: var(--text-1); font-family: inherit; font-size: 12.5px; font-weight: 500;
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  transition: background var(--t-fast) var(--ease-out);
+}
+.later-entry:hover { background: var(--bg-card-hover); }
+.later-entry.on { background: var(--bg-selected); border-color: transparent; color: var(--accent-deep); font-weight: 600; }
+.later-label { flex: 1; text-align: left; }
+.later-count {
+  font-size: 11px; color: var(--text-3); padding: 1px 6px; border-radius: var(--r-pill);
+  background: var(--bg-app);
+}
+.later-entry.on .later-count { color: var(--accent-deep); }
+.rail-later-btn { margin-bottom: 8px; }
+.rail-later-btn.on { background: var(--bg-selected); color: var(--accent-deep); }
 
 .sec-head {
   display: flex; align-items: center; justify-content: space-between;

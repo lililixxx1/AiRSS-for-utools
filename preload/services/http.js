@@ -10,6 +10,7 @@
  * 返回 { ok, url, status, headers, body:Buffer|null, truncated:boolean, error:string|null }
  * 不抛异常，错误一律走返回值（调用方好写统一失败分支）。
  */
+const { Buffer } = require("buffer");
 const http = require("http");
 const https = require("https");
 const zlib = require("zlib");
@@ -17,11 +18,18 @@ const zlib = require("zlib");
 const DEFAULT_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
-// keep-alive 连接池：订阅周期刷新（同源反复抓）与 AI 网关调用（同域名高频）
-// 每次都全新 TCP+TLS 握手，复用可省 1-3 个 RTT；timeout 30s = 空闲 socket 自动回收，
-// 防隐藏后台期间滞留连接。req.destroy()（超时/截断）会连带销毁 socket，池自动补位。
-const kaHttpAgent = new http.Agent({ keepAlive: true, maxSockets: 16, maxFreeSockets: 8, timeout: 30_000, scheduling: "lifo" });
-const kaHttpsAgent = new https.Agent({ keepAlive: true, maxSockets: 16, maxFreeSockets: 8, timeout: 30_000, scheduling: "lifo" });
+// keep-alive 连接池（懒创建：防 dev_load 顶层 require 触发 http/https 构造）：
+// 订阅周期刷新与 AI 网关调用复用连接可省 1-3 个 RTT；timeout 30s 自动回收空闲 socket。
+let kaHttpAgent = null;
+let kaHttpsAgent = null;
+function getAgent(isHttps) {
+  if (isHttps) {
+    if (!kaHttpsAgent) kaHttpsAgent = new https.Agent({ keepAlive: true, maxSockets: 16, maxFreeSockets: 8, timeout: 30_000, scheduling: "lifo" });
+    return kaHttpsAgent;
+  }
+  if (!kaHttpAgent) kaHttpAgent = new http.Agent({ keepAlive: true, maxSockets: 16, maxFreeSockets: 8, timeout: 30_000, scheduling: "lifo" });
+  return kaHttpAgent;
+}
 
 /**
  * @param {string} url
@@ -91,7 +99,7 @@ function once(urlStr, target, extraHeaders, timeout, maxBytes) {
     // 非 Node realm 实例，http.get 会把它当 options、把 options 当回调导致 TypeError
     const req = mod.get(
       urlStr,
-      { headers, rejectUnauthorized: false, agent: target.protocol === "https:" ? kaHttpsAgent : kaHttpAgent },
+      { headers, agent: getAgent(target.protocol === "https:") },
       (res) => {
         const status = res.statusCode || 0;
         const resHeaders = res.headers || {};
@@ -188,7 +196,7 @@ function postJson(urlStr, opts = {}) {
     // 首参必须传字符串（realm 坑见 once() 注释）
     const req = mod.request(
       urlStr,
-      { method: "POST", headers, rejectUnauthorized: false, agent: target.protocol === "https:" ? kaHttpsAgent : kaHttpAgent },
+      { method: "POST", headers, agent: getAgent(target.protocol === "https:") },
       (res) => {
         const status = res.statusCode || 0;
         if (status >= 300 && status < 400) {

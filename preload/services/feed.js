@@ -7,6 +7,7 @@
  * 抓取（PLAN §5.1）：ETag/If-Modified-Since 条件请求；304 直接返回不解析
  */
 const { nodeFetch } = require("./http.js");
+const ctx = { nodeFetch: (url, opts) => nodeFetch(url, opts) };
 const { sanitizeContent, makeSummary, extractCover, htmlToText, paragraphizePlainText } = require("./article.js");
 const adapters = require("./adapters.js");
 const crypto = require("crypto");
@@ -180,7 +181,7 @@ async function fetchFeed(feedUrl, cond = {}) {
   if (cond.etag) headers["If-None-Match"] = cond.etag;
   if (cond.lastModified) headers["If-Modified-Since"] = cond.lastModified;
 
-  const res = await nodeFetch(feedUrl, { headers, timeout: cond.timeout || 12000 });
+  const res = await ctx.nodeFetch(feedUrl, { headers, timeout: cond.timeout || 12000 });
   if (!res.ok) return { status: "error", error: res.error || "HTTP_" + res.status };
   if (res.status === 304) return { status: "not_modified" };
 
@@ -212,7 +213,10 @@ function normalizeUrl(input) {
 
 /** 渲染层公开抓取结果：剥掉仅供 discoverFeed 内部复用的 raw html。
  *  安全基线（AGENTS「双道信任模型」）：原始 HTML 只允许留在 preload——`airss.feed.fetch`
- *  直接暴露 fetchFeed 会把未消毒远程 HTML 递给渲染层，成为注入隐患（2026-10 复盘加）。 */
+ *  直接暴露 fetchFeed 会把未消毒远程 HTML 递给渲染层，成为注入隐患（2026-10 复盘加）。
+ * @param {string} url
+ * @param {{ etag?: string, lastModified?: string, timeout?: number }} [cond]
+ */
 async function fetchFeedPublic(url, cond = {}) {
   const r = await fetchFeed(url, cond);
   if (r && (Object.prototype.hasOwnProperty.call(r, "html") || Object.prototype.hasOwnProperty.call(r, "finalUrl"))) {
@@ -319,7 +323,7 @@ async function discoverFeed(inputUrl) {
     html = direct.html;
     pageUrl = direct.finalUrl || url;
   } else {
-    const page = await nodeFetch(url, { timeout: 8000 });
+    const page = await ctx.nodeFetch(url, { timeout: 8000 });
     if (page.ok) {
       html = decodeBuffer(page.body, page.headers["content-type"]);
       pageUrl = page.url || url;
@@ -460,4 +464,5 @@ module.exports = {
   looksSummaryOnly,
   looksExternalLinks,
   pathFeedCandidates,
+  __test: { ctx },
 };

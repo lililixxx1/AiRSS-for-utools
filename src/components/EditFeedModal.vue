@@ -57,8 +57,7 @@ async function save() {
   ui.toast("已保存");
   emit("close");
   if (urlChanged) {
-    const freshFeed = data.feedMap.get(props.feed._id) || props.feed;
-    const r = await window.airss.scheduler.refreshOne(freshFeed);
+    const r = await window.airss.refresh.one(props.feed._id);
     await data.loadAll();
     ui.toast(r.ok ? "已切换地址并完成首次抓取" : `新地址抓取失败：${r.error}`, r.ok ? "info" : "error");
   }

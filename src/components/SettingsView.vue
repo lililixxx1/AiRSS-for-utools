@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
-import type { PaletteId } from "../types";
+import type { PaletteId, ReasoningEffort } from "../types";
 import { useDataStore } from "../stores/data";
 import { useSettingsStore } from "../stores/settings";
 import { useThemeStore } from "../stores/theme";
@@ -46,27 +46,148 @@ function askClear() {
 }
 
 function exportOpml() {
-  const path = utools.showSaveDialog({
-    title: "导出 OPML",
-    defaultPath: "airss-subscriptions.opml",
-    filters: [{ name: "OPML", extensions: ["opml", "xml"] }],
-  });
-  if (path) data.exportOpml(path);
+  data.exportOpml();
 }
 
-// ---- AI（二期）：引擎配置在 preload（airss.ai），密钥只进 dbCryptoStorage ----
+// ---- AI（uTools 8.0+；BYOK 密钥优先 dbCryptoStorage，不可用时显式降级本机目录）----
 type AiStatus = Awaited<ReturnType<typeof window.airss.ai.getStatus>>;
 const aiStatus = ref<AiStatus | null>(null);
 const aiCfg = reactive({ ...window.airss.ai.getConfig() });
 const byokKeyInput = ref("");
 const byokKeySaved = ref(window.airss.ai.hasByokKey());
 
+const EFFORT_OPTIONS: { id: ReasoningEffort; label: string }[] = [
+  { id: "none", label: "极速" },
+  { id: "low", label: "均衡" },
+  { id: "medium", label: "深度" },
+];
+
+// ---- 后台定时刷新、全局搜索与本机缓存状态 ----
+type ScheduleStatus = ReturnType<typeof window.airss.schedule.getStatus>;
+type LocalStats = ReturnType<typeof window.airss.db.getLocalStats>;
+type LegacyInfo = Awaited<ReturnType<typeof window.airss.db.detectLegacy>>;
+
+const scheduleStatus = ref<ScheduleStatus>(window.airss.schedule.getStatus());
+const scheduleCron = ref(scheduleStatus.value.schedule?.trigger?.cron || "*/30 * * * *");
+const scheduleBusy = ref(false);
+const globalSearchEnabled = ref(window.airss.features.isGlobalSearchEnabled());
+const localStats = ref<LocalStats>(window.airss.db.getLocalStats());
+const legacyInfo = ref<LegacyInfo | null>(null);
+const indexBusy = ref(false);
+const cleanupBusy = ref(false);
+
+function refreshScheduleStatus() {
+  scheduleStatus.value = window.airss.schedule.getStatus();
+  const c = scheduleStatus.value.schedule?.trigger?.cron;
+  if (c) scheduleCron.value = c;
+}
+
+function formatExecTime(ts?: number): string {
+  if (!ts) return "尚未运行";
+  try {
+    return new Date(ts).toLocaleString();
+  } catch {
+    return String(ts);
+  }
+}
+
+async function toggleSchedule() {
+  if (scheduleBusy.value) return;
+  scheduleBusy.value = true;
+  try {
+    if (scheduleStatus.value.enabled) {
+      window.airss.schedule.disable();
+      refreshScheduleStatus();
+      ui.toast("已关闭后台定时刷新");
+    } else {
+      const r = await window.airss.schedule.enable(scheduleCron.value);
+      refreshScheduleStatus();
+      if (r.ok) ui.toast("已开启后台定时刷新");
+      else if (r.rejected) ui.toast("已取消：未授予后台定时任务权限");
+      else ui.toast(`开启定时失败：${r.error || "SCHEDULE_FAILED"}`, "error");
+    }
+  } finally {
+    scheduleBusy.value = false;
+  }
+}
+
+async function onCronChange(val: string | number) {
+  scheduleCron.value = String(val);
+  if (!scheduleStatus.value.enabled) return;
+  scheduleBusy.value = true;
+  try {
+    const r = await window.airss.schedule.enable(scheduleCron.value);
+    refreshScheduleStatus();
+    if (r.ok) ui.toast("已更新定时频率");
+    else if (r.rejected) ui.toast("未授权修改定时任务");
+  } finally {
+    scheduleBusy.value = false;
+  }
+}
+
+function toggleGlobalSearch() {
+  const next = !globalSearchEnabled.value;
+  globalSearchEnabled.value = window.airss.features.setGlobalSearchEnabled(next);
+  ui.toast(globalSearchEnabled.value ? "已开启主搜索框实时文章检索" : "已关闭主搜索框实时文章检索");
+}
+
+async function rebuildIndex() {
+  if (indexBusy.value) return;
+  indexBusy.value = true;
+  try {
+    const r = await window.airss.db.rebuildSearchIndex();
+    localStats.value = r.stats;
+    ui.toast(`已重建 ${r.count} 篇本地搜索索引`);
+  } catch (e: any) {
+    ui.toast("重建索引失败：" + String(e?.message || e), "error");
+  } finally {
+    indexBusy.value = false;
+  }
+}
+
+async function clearCache() {
+  if (indexBusy.value) return;
+  indexBusy.value = true;
+  try {
+    localStats.value = await window.airss.db.clearBodyCache();
+    ui.toast("已清理正文缓存（订阅与收藏已保留）");
+  } catch (e: any) {
+    ui.toast("清理缓存失败：" + String(e?.message || e), "error");
+  } finally {
+    indexBusy.value = false;
+  }
+}
+
+async function cleanLegacy() {
+  if (cleanupBusy.value) return;
+  cleanupBusy.value = true;
+  try {
+    const r = await window.airss.db.cleanLegacySyncDocs();
+    if (!r.ok) {
+      ui.toast(r.error === "CLOUD_SYNC_IN_PROGRESS" ? "云同步正在进行中，请稍后再试" : `清理失败：${r.error || "UNKNOWN"}`, "error");
+      return;
+    }
+    legacyInfo.value = await window.airss.db.detectLegacy();
+    ui.toast(`已清理 ${r.removed} 条 v1.x 旧版同步冗余`);
+  } finally {
+    cleanupBusy.value = false;
+  }
+}
+
 onMounted(async () => {
   refreshLogCount();
+  refreshScheduleStatus();
+  globalSearchEnabled.value = window.airss.features.isGlobalSearchEnabled();
+  localStats.value = window.airss.db.getLocalStats();
   try {
     aiStatus.value = await window.airss.ai.getStatus();
   } catch {
     aiStatus.value = null;
+  }
+  try {
+    legacyInfo.value = await window.airss.db.detectLegacy();
+  } catch {
+    legacyInfo.value = null;
   }
 });
 
@@ -81,16 +202,16 @@ function saveAiCfg(patch: Record<string, unknown>) {
 
 function saveByokKey() {
   const k = byokKeyInput.value.trim();
-  // 空守卫防旧 preload 形态返回 void；ok===false = 宿主加密存储不可用
-  // （dbCryptoStorage 已从 uTools 8.0 官方文档移除，运行时若下线则 preload 显式报失败而非抛错）
   const r = window.airss.ai.setByokKey(k);
   if (r && r.ok === false) {
-    ui.toast(k ? "宿主加密存储不可用，密钥未保存" : "宿主加密存储不可用，密钥未清除");
+    ui.toast(k ? "本机密钥保存失败" : "本机密钥清除失败", "error");
     return;
   }
   byokKeySaved.value = !!k;
   byokKeyInput.value = "";
-  ui.toast(k ? "密钥已加密保存" : "已清除密钥");
+  if (!k) ui.toast("已清除密钥");
+  else if (r?.storage === "local-fallback") ui.toast("已保存至本机插件目录（未加密、不同步）");
+  else ui.toast("密钥已加密保存");
   saveAiCfg({});
 }
 
@@ -141,15 +262,9 @@ function copyLogs() {
 }
 
 function exportLogs() {
-  const path = utools.showSaveDialog({
-    title: "导出诊断日志",
-    defaultPath: "airss-log.txt",
-    filters: [{ name: "文本", extensions: ["txt", "log"] }],
-  });
-  if (!path) return;
   try {
-    window.airss.sys.writeTextFile(path, window.airss.log.dumpText());
-    ui.toast("日志已导出");
+    const res = window.airss.sys.exportLogsWithDialog();
+    if (res?.saved) ui.toast("日志已导出");
   } catch (e: any) {
     ui.toast("导出日志失败：" + String(e?.message || e), "error");
   }
@@ -285,14 +400,30 @@ function openRepo() {
             <span class="st-label">模型</span>
             <DropdownSelect
               :model-value="aiCfg.model"
-              :options="[{ value: '', label: '默认（跟随 uTools 设置）' }, ...(aiStatus?.models || []).map((m) => ({ value: m.id, label: m.label }))]"
+              :options="[{ value: '', label: '默认（跟随 uTools 设置）' }, ...(aiStatus?.models || []).map((m) => ({ value: m.id, label: m.cost != null ? `${m.label} (消耗 ${m.cost})` : m.label }))]"
               aria-label="AI 模型"
-              width="220px"
+              width="240px"
               @update:model-value="onModelPick"
             />
           </div>
+          <div class="st-row">
+            <div>
+              <span class="st-label">深度思考（Reasoning Effort）</span>
+              <p class="st-note">极速（none）适合日常摘要/翻译与实时流式响应；深度思考消耗更多额度与延迟</p>
+            </div>
+            <div class="seg" role="radiogroup" aria-label="深度思考档位">
+              <button
+                v-for="e in EFFORT_OPTIONS"
+                :key="e.id"
+                :class="{ on: aiCfg.reasoningEffort === e.id }"
+                @click="saveAiCfg({ reasoningEffort: e.id })"
+              >
+                {{ e.label }}
+              </button>
+            </div>
+          </div>
           <p v-if="aiStatus && !aiStatus.ready" class="st-note warn">
-            当前 uTools 版本不支持 AI 接口（需 ≥ 7.0），摘要暂不可用；可切换到自定义引擎。
+            当前宿主不支持 uTools 原生 AI 接口（需 uTools 8.0+），摘要暂不可用；可切换到自定义引擎。
           </p>
           <div v-if="aiStatus" class="st-row">
             <span class="st-label">今日额度</span>
@@ -312,10 +443,13 @@ function openRepo() {
           <div class="st-row">
             <span class="st-label">API 密钥</span>
             <div class="byok-key">
-              <input class="input txt" type="password" v-model="byokKeyInput" :placeholder="byokKeySaved ? '已加密保存，输入可替换' : 'sk-…'" />
+              <input class="input txt" type="password" v-model="byokKeyInput" :placeholder="byokKeySaved ? '已保存，输入可替换' : 'sk-…'" />
               <button class="btn btn-secondary btn-sm" @click="saveByokKey">保存</button>
             </div>
           </div>
+          <p v-if="aiStatus?.byokStorage === 'local-fallback'" class="st-note warn">
+            当前宿主加密存储不可用，API 密钥已降级保存在本机插件数据目录（纯文本、不同步到云端）。
+          </p>
           <div class="st-row">
             <div>
               <span class="st-label">允许 http 地址</span>
@@ -328,7 +462,79 @@ function openRepo() {
           <p class="st-note">自定义引擎走 OpenAI 兼容接口（/chat/completions），不消耗 uTools 额度；地址变更后重定向将被拒绝。</p>
         </template>
 
-        <p class="st-note">开启后，文章标题与正文（截断至约 2000 字）会发送至所选 AI 服务用于生成摘要。</p>
+        <p class="st-note">开启后，执行 AI 摘要、标题增强、段落翻译或目录生成时，会将文章标题与对应截断正文（摘要约 2000 字、翻译上限 4000 字、目录上限 10000 字）发送至所选 AI 服务。</p>
+      </div>
+
+      <!-- 后台与快捷入口（uTools 8.0+） -->
+      <div class="st-group">
+        <h3>后台与快捷入口</h3>
+        <div class="st-row">
+          <div>
+            <span class="st-label">后台定时刷新</span>
+            <p class="st-note">通过 uTools 系统定时任务在后台静默抓取到期订阅并汇总单条系统通知</p>
+          </div>
+          <button
+            class="switch"
+            :class="{ on: scheduleStatus.enabled }"
+            :disabled="!scheduleStatus.supported || scheduleBusy"
+            role="switch"
+            :aria-checked="scheduleStatus.enabled"
+            @click="toggleSchedule"
+          >
+            <span class="dot"></span>
+          </button>
+        </div>
+        <div v-if="scheduleStatus.supported" class="st-row">
+          <span class="st-label">定时间隔（Cron）</span>
+          <DropdownSelect
+            :model-value="scheduleCron"
+            :options="[
+              { value: '*/15 * * * *', label: '每 15 分钟' },
+              { value: '*/30 * * * *', label: '每 30 分钟' },
+              { value: '0 * * * *', label: '每 1 小时' },
+            ]"
+            aria-label="后台定时间隔"
+            width="160px"
+            @update:model-value="onCronChange"
+          />
+        </div>
+        <p v-if="!scheduleStatus.supported" class="st-note warn">
+          当前环境不支持后台定时任务（需 uTools 8.0+）。
+        </p>
+        <p v-else-if="scheduleStatus.schedule" class="st-note num">
+          最近执行：{{ formatExecTime(scheduleStatus.schedule.lastExecuteAt) }} · 成功 {{ scheduleStatus.schedule.successCount ?? 0 }} / 失败 {{ scheduleStatus.schedule.failureCount ?? 0 }}
+          <span v-if="scheduleStatus.schedule.lastError"> · {{ scheduleStatus.schedule.lastError }}</span>
+        </p>
+        <div class="st-row">
+          <div>
+            <span class="st-label">定时刷新后自动运行 AI 标题/标签</span>
+            <p class="st-note">默认关闭，避免无人值守定时刷新意外消耗 AI 额度；需先开启 AI 功能</p>
+          </div>
+          <button
+            class="switch"
+            :class="{ on: settings.scheduleAiBatch }"
+            role="switch"
+            :aria-checked="settings.scheduleAiBatch"
+            @click="settings.set('scheduleAiBatch', !settings.scheduleAiBatch)"
+          >
+            <span class="dot"></span>
+          </button>
+        </div>
+        <div class="st-row">
+          <div>
+            <span class="st-label">uTools 主搜索框实时搜索文章</span>
+            <p class="st-note">默认关闭；开启后在 uTools 主搜索框输入 ≥2 字即可实时检索本地文章并直达阅读</p>
+          </div>
+          <button
+            class="switch"
+            :class="{ on: globalSearchEnabled }"
+            role="switch"
+            :aria-checked="globalSearchEnabled"
+            @click="toggleGlobalSearch"
+          >
+            <span class="dot"></span>
+          </button>
+        </div>
       </div>
 
       <!-- 过滤（PLAN-V1.3 B）-->
@@ -398,6 +604,23 @@ function openRepo() {
           />
         </div>
         <div class="st-row">
+          <div>
+            <span class="st-label">本机缓存与全文索引</span>
+            <p class="st-note num">已索引 {{ localStats.indexedDocs }} 篇 · 占用 {{ localStats.diskMb }} MB（{{ localStats.files }} 个文件）</p>
+          </div>
+          <div class="st-actions">
+            <button class="btn btn-secondary btn-sm" :disabled="indexBusy" @click="rebuildIndex">重建搜索索引</button>
+            <button class="btn btn-secondary btn-sm" :disabled="indexBusy" @click="clearCache">清理正文缓存</button>
+          </div>
+        </div>
+        <div v-if="legacyInfo && legacyInfo.total > 0" class="st-row">
+          <div>
+            <span class="st-label">旧版数据清理（v1.x → v2）</span>
+            <p class="st-note warn num">检测到 {{ legacyInfo.total }} 条旧同步正文/条目文档；确认多端均已升级后可安全清理以释放云空间</p>
+          </div>
+          <button class="btn btn-secondary btn-sm" :disabled="cleanupBusy" @click="cleanLegacy">清理旧版同步冗余</button>
+        </div>
+        <div class="st-row">
           <span class="st-label">订阅备份</span>
           <button class="btn btn-secondary btn-sm" @click="exportOpml"><I.download />导出 OPML</button>
         </div>
@@ -432,7 +655,7 @@ function openRepo() {
         </div>
         <div class="st-row">
           <span class="st-label">开源协议</span>
-          <span class="st-value">GPL-3.0 · 数据仅存本机（随 uTools 云同步）</span>
+          <span class="st-value">GPL-3.0 · 订阅与状态云同步，正文缓存存本机</span>
         </div>
       </div>
     </div>
@@ -502,5 +725,6 @@ function openRepo() {
 .repo-link:hover { color: var(--accent-strong); }
 .repo-link:active { color: var(--accent-active); background: var(--bg-active); }
 .st-note.warn { color: var(--danger-text); }
+.st-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 /* .switch 全局类在 base.css（PLAN-POLISH D3 提取） */
 </style>

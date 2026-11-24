@@ -124,33 +124,11 @@ function absolutize(html, base) {
 }
 
 /**
- * 落库：itemfullx 独立前缀 + 连带清理（T-09 同族）+ 封面补写。
+ * 落库：本地 .x.html.gz + 连带失效旧译文/目录（T-09 同族）+ 封面补写。
  * @returns {Promise<boolean>} false = 落库失败（渲染层安静降级）
  */
 async function storeFull(itemId, clean, cover, src) {
-  const saved = await dbSvc.putRetry({ _id: "itemfullx:" + itemId, content: clean, at: Date.now(), src: src || "readability" });
-  if (!saved) return false;
-
-  // 落库 2：get 复验再写，避免覆盖期间并发的已读/星标变更。
-  // 连带失效旧译文与旧目录（保留 ai.summary/tags——基于摘要文本生成，仍成立）。
-  const fresh = await dbSvc.getDoc(itemId);
-  if (fresh) {
-    let touched = false;
-    if (fresh.aiTrans) {
-      delete fresh.aiTrans;
-      touched = true;
-    }
-    if (fresh.aiToc) {
-      delete fresh.aiToc; // 目录锚点对替换前正文，head 必失配（T-09 同族，PLAN-AI-TOC）
-      touched = true;
-    }
-    if (cover && !fresh.cover) {
-      fresh.cover = cover; // 只补空：适配器给的是站点自有封面（列表卡片用），不覆盖已抓到的首图
-      touched = true;
-    }
-    if (touched) await dbSvc.putRetry(fresh);
-  }
-  return true;
+  return dbSvc.saveItemFullx(itemId, clean, cover, src);
 }
 
 /** 单次提取尝试（无并发副作用；ensureFull 负责去重与日志） */

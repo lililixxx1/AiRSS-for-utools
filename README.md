@@ -1,102 +1,52 @@
-# AiRSS — uTools 智能订阅阅读器
+# AiRSS — uTools 智能订阅阅读器（v2.1）
 
-一期（核心阅读器）。暖米白 + 单一橙色强调的设计语言，参考 `docs/design-system.md`。
+面向 **uTools 8.0+** 的轻量、离线优先、本地加密/分层存储与 AI 增强 RSS 阅读器。设计语言为暖米白 + 单一橙色强调。
 
-## 目录
+## v2.1 核心特性
 
+- **同步/本地数据分层**：仅订阅配置（`feed:*`）、按需阅读状态（`state:*`）、星标与稍后读快照（`star:*` / `later:*`）走 `utools.db` 云同步；条目分片、gzip 压缩 HTML 正文、Readability 提取全文、AI 缓存/译文/目录与 7 天按天滚动日志全部保存在本机 `<PluginLocalDataPath>/airss-data/`。
+- **毫秒级全文搜索**：基于零 WASM `minisearch` 的中英文混合（CJK 2-gram + 英文词元）本地倒排索引，万级文章 `<50ms` 无截断检索。
+- **uTools 8.0 原生入口**：
+  - **1+4 主搜索框直达（`mainPush`）**：首条展示未读总览，下方 4 条直达最新未读文章阅读面板；
+  - **可选全局正文搜索（动态 `over` feature）**：设置页开启后直接在 uTools 主搜索框实时检索全部文章；
+  - **存入稍后读（`save_later`，`mainHide: true`）**：复制或输入任意网页 URL 即可无窗抓取提取并归档至「稍后读」；
+  - **后台定时刷新（`requestSchedule`）**：默认关闭，可在设置页授权 15/30/60 分钟定时抓取并汇总单条系统通知（定时后 AI 批处理受独立开关保护）。
+- **AI 能力增强**：支持流式摘要与标题规范化、段落对照翻译、结构/AI 目录、悬浮轮盘快捷工具、模型费用提示与 `reasoningEffort`（极速/均衡/深度）三档调控；BYOK 兼容 OpenAI 接口，密钥优先写入 `dbCryptoStorage` 并支持本机文件显式降级。
+
+## 目录结构
+
+```text
+AiRSS-for-utools/
+├─ public/plugin.json & logo.png  # uTools 清单模板与图标
+├─ preload/                       # Node CJS 服务层 + core 领域编排
+├─ src/                           # Vue 3 + TypeScript + Pinia 渲染层
+├─ scripts/                       # build-dist、typegen、离线测试与 dev-bridge 验机脚本
+├─ docs/                          # 架构 ADR（docs/adr/）、设计系统与历史归档
+└─ dist/                          # npm run build 产出的单一插件目录（可直接导入 uTools）
 ```
-airss/
-├─ plugin.json          # uTools 插件清单（main→dist/index.html, preload→preload/index.js）
-├─ logo.png             # 插件图标（scripts/make-logo.py 生成）
-├─ preload/             # Node 服务层（uTools 规范：源码直供不打包，node_modules 随包）
-│  ├─ index.js          # 挂 window.airss = { db, feed, article, opml, scheduler, sys }
-│  └─ services/         # http(解压/超时/限流) / db(判重/写序/保留) / feed(发现/解析) / article(sanitize) / opml / scheduler
-├─ src/                 # 渲染层 Vue3 + TS + Pinia（无 router，状态机切视图）
-├─ dist/                # vite 构建产物（打包/调试用）
-├─ docs/
-│  ├─ PLAN-PHASE1.md    # 一期实施计划（v2，过 plan-code-reviewer）
-│  ├─ design-system.md  # 设计系统（令牌/组件/交互/可达性，含对比度计算）
-│  └─ preview.html      # 设计像素基准（浅/深双主题）
-└─ scripts/             # make-logo.py / smoke-preload.js
-```
 
-## 开发
+## 开发与测试
 
 ```bash
-npm install               # 渲染层依赖
-cd preload && npm install # preload 依赖（CJS 锁定，兼容 uTools 8.0=Node20 / 7.x=Node16 双宿主）
-cd ..
-npm run dev               # 浏览器开发（mock 层兜底，无需 uTools）
-npm run build             # 构建 dist
-npm run typecheck         # vue-tsc
-node scripts/smoke-preload.js      # preload 冒烟测试（95 项：XSS/GBK/解析/OPML/提取消毒/摘要启发式/站内适配/真实抓取/发现复用+页面相对候选）
-node scripts/test-db-mock.js       # 数据层+端到端管线测试（74 项：判重/写序/保留清理/级联删除/双前缀搜索/ensureFull 状态机/失败记忆）
-node scripts/check-theme-contrast.js  # 多主题配色守门（warm 快照 + 令牌完整 + 4 配色 × 明暗对比度矩阵）
-python scripts/make-logo.py     # 重新生成 logo
+npm install
+cd preload && npm install && cd ..
+
+npm run dev                               # 浏览器 dev（mock 兜底；支持 ?view=reader|settings|addfeed|recommend）
+npm run gen:types                         # 从 preload/index.js 生成 src/types/generated/
+npm run typecheck                         # vue-tsc --noEmit
+npm run build                             # 构建并自检单一可运行目录 dist/
+
+# 离线与构建校验
+node scripts/check-theme-contrast.js
+node scripts/check-preload-mapping.js
+node scripts/smoke-preload.js --offline
+node scripts/test-db-mock.js --offline
+node scripts/test-ai.js
+node scripts/test-v2-core.js
 ```
 
-浏览器 dev 直达状态（mock 专用）：`?view=reader` / `?view=settings` / `?view=addfeed` / `?view=recommend`。
+> 接入 uTools 开发者工具时，请先执行 `npm run build`，然后直接导入 **`dist/plugin.json`**。如需运行端到端实机验证：配置 `UTOOLS_MCP_KEY` 后执行 `node scripts/test-dev-bridge.js`。
 
-## 接入 uTools（开发者模式）
+## 协议
 
-1. `npm run build` 确保 dist 为最新；preload 依赖已 `npm install`。
-2. uTools → 设置 → 高级 → 本地插件 / 开发者插件 → 导入 plugin.json：
-   `C:\Users\Administrator\Desktop\ccc\ccc\airss\plugin.json`
-3. 指令：`AiRSS` / `rss` / `订阅` / `阅读` 打开主界面；复制任意 URL 后呼出 uTools →「订阅到 AiRSS」一键订阅。
-
-> **打包注意（v1.3）**：plugin.json 无排除机制，发布打包前删除 `scripts/spike-tmp/`（~17MB 的
-> Readability 选型 spike 依赖，jsdom 等败者不随包发布；复现可 `npm install` 重建，见
-> docs/PLAN-V1.3.md 附录）。
-
-## 一期功能清单
-
-- 订阅增删改（发现管线：直连 → `<link rel=alternate>` → 常见路径探测，失败给 RSSHub 文案）
-- 打开即增量刷新：ETag / If-Modified-Since、12s 请求超时、90s 单轮预算、并发 3、gzip/deflate/br 解压、GBK 编码兜底
-- 判重与更新：`guid‖link‖title` SHA-256 前 12 位为 id；contentHash 变化才覆盖内容；read/starred 恒保留；写序（items 全成功才推进 feed）
-- 卡片（默认）/列表双视图 + 可变高虚拟滚动；阅读面板（sanitize 正文、4 档字号、衬线开关、行宽 42em、阅读进度记忆）
-- 已读/星标/全部已读；键盘流 j/k/Enter/m/s/Shift+A/Ctrl+F/⌫（Esc 被 uTools 宿主消费，页内不作键）
-- SubInput 搜索 + 侧栏搜索同源；mainPush 未读建议位；新文章系统通知（按源）
-- OPML 导入（file input，分批+进度）/ 导出（showSaveDialog）
-- 浅/深/跟随三态主题（matchMedia 实时）；分离窗三栏（detach 自动切换）；侧栏折叠
-- 保留策略：每源 N 篇（默认 200）+ 星标豁免；删除前复查星标防竞态
-- 安全：sanitize-html 白名单（双道信任模型：preload 是唯一 HTML 生产方）、CSP img-src、no-referrer、外链 shellOpenExternal
-
-## 二期（AI 增强，已实现）
-
-- AI 合并调用（打开文章流式摘要 + 标题/标签）、轻量批（刷新后补 AI 优化标题）、额度双池（手动 120 · 后台 30 /日，BYOK 豁免）、BYOK 引擎（OpenAI 兼容，密钥仅存 dbCryptoStorage）
-- v1.2（2026-09）：AI优化标题（冗长/含糊/标题党 → 清晰客观中文）+ 英文标题中文化；AI 段落翻译（整篇一次调用，译文以弱化引用块插在各段之后，缓存跨源同文复用）；自动连续摘要 0/1/3/5 篇可调（0 = 逐篇手动 AI 按钮）；内容搜索（正文全文多词 AND、1.5s 预算截断、标题高亮与结果计数；方案见 docs/PLAN-ENHANCE.md）
-
-## v1.3（全文提取 / 过滤 / 组织，已实现；方案见 docs/PLAN-V1.3.md）
-
-- **全文提取（P0）**：摘要型源打开文章时自动抓原文页 → Readability（linkedom）提取 → 消毒后替换正文；`itemfullx:` 独立前缀缓存二次秒出；每源开关「抓取全文」，失败安静回摘要（无打扰 toast）；AI 摘要自动用提取版正文（质量受益）；全文替换时旧译文连带失效（T-09 同族 + 翻译/提取并发弃写守卫）
-- **关键词过滤（P1a）**：静音词（多词 OR，命中即隐，计数不剔除；工具栏「已静音 N 篇」可临时暂停）+ 高亮词（与搜索词合并 3 词上限）；设置页「过滤」组每行一词
-- **标签智能文件夹（P1b）**：侧栏标签区（AI 标签计数前 8）+ 阅读摘要卡标签可点，`#标签` 过滤视图与搜索/静音交集
-- **组织补齐（P2）**：分类重命名/合并/删除（⋯ 菜单）；订阅源拖拽排序（order 持久化，新增源排末尾，OPML 导出随序）；订阅地址可改（换源不换 feedKey，已读/星标/AI 产物全保留，条件缓存自动重置并首抓）
-- **内容搜索升级**：扫 itemfull + itemfullx 双前缀（同 id 去重）；万级存量实测 1.5s 预算仅扫 ~20% 即截断降级（`node scripts/bench-search.js` 复现），维持预算截断不开发索引
-- 仍留路线：云同步合并矩阵、卡片封面渐变生成、倒排搜索索引（万级实测已截断降级维持，见待验证项）、持久化智能文件夹（v2 视标签使用率再议）
-
-## v1.9（推荐订阅页，已实现）
-
-- **推荐订阅页**：侧栏「订阅源」下方新增入口（设置 · 外观可关闭；侧栏折叠时为图标钮；宽幅下悬停出 ⋯ 菜单，可直接「隐藏推荐入口」），页内按「精品聚合 / 技术社区 / 数码与产品」列出 12 个**实测可订阅**的中文源；点「订阅」仍走发现确认弹窗（可改名/选分类/决定是否抓取全文），已订阅的行点击直接跳到该源列表（不重复建源）；空态第 5 个芯片「更多推荐 ›」同入口
-- 清单单一真源 `src/lib/recommend.ts`（空态芯片 / 侧栏计数 / 推荐页 / 设置文案四处共用），`feedUrlKey` 归一判重（协议、`www.`、末尾斜杠不参与）；准入纪律：新增源必须联网实测通过——2026-10-30 体检淘汰 V2EX / 36氪 / HN / 虎嗅 / 产品沉思录
-
-## 实机待验证项（spike，见 PLAN §12）
-
-- [x] Esc 拦截优先级（宿主 vs 页面）——2026-09-05 实机验证：宿主优先，主窗口内按 Esc 直接隐藏插件（页面 preventDefault 拦不住）。页内逐级返回由 ⌫ Backspace 承担；2026-09-12 用户裁决 Esc 分支整体移除（含分离窗），⌫ 为唯一页内返回/关闭键（PLAN-ESC-BACKSPACE）
-- [ ] ⌫ 逐级返回实机复验（主窗/分离窗）：返回阶梯（模态→抽屉→文内搜索→关阅读→退设置→清搜索）、轮盘/AI 面板/下拉/轨内搜索/文内搜索的 ⌫ 关闭与输入态（空值才关）表现
-- [ ] mainPush 建议位存续规则与 icon 相对路径表现
-- [x] allDocs 万级真实耗时——v1.3 本地实测（`node scripts/bench-search.js`，12000 篇 itemfull+itemfullx 各半）：1.5s 预算仅扫 ~2450 篇（约 20%）即 truncated，全扫推算 ~7s+；**决策：维持预算截断降级（UI 已示「部分扫描」），不开发倒排索引**。实机 IPC 开销另测
-- [ ] 全文提取实机（7.x Node16 / 8.0 Node20 宿主内 linkedom/readability require 与运行、真实摘要型源抓取成功率、`FETCH_EMPTY_BODY`/`EXTRACT_TOO_SHORT` 实际占比）
-- [ ] 拖拽排序/分类菜单/标签区在实机无边框窗内的交互（指示线定位、⋯ 菜单裁剪）
-- [ ] PLAN-POLISH（v1.8 全站打磨）实机项：modal/dropdown/菜单族进出场动画流畅度（主窗+分离窗）、全局滚动条样式（8px/令牌 thumb）、4 配色 × 明暗的已读卡片标题色与按下态反馈（--text-read/--bg-active 新令牌）
-- [x] utools.ai 特性检测在当前账号环境的表现（2026-09-05 实机验证：接口可用、allAiModels 正常、流式/非流式/abort 均通过；单次生成 6~32s 为服务端耗时）
-- [ ] **uTools 8.0 适配回归**（2026-10-30 落地：reasoning_effort 关思考提速 + dbCryptoStorage 防御 + plugin.json explain/description 双写）：
-  - [x] 机制生效实证（2026-10-30 dev-bridge 实机 uTools 8.0.2）：preload 内 `getAppVersion()` 可用返回 `8.0.2`（无 `major:0` 回落，**无需恒附加策略**）；`utools.ai` 收到的 option 含 `reasoning_effort:"none"`；诊断日志 `ai.call` 带 `effort:"none"`；preload 在 Node20 宿主内零警告装载（CJS 链全通）
-  - [ ] 提速幅度对比：真实摘要/翻译的 ms 较 7.0 时代明显下降（dev-bridge stub 引擎零计费只能验机制，需真发 AI 调用）；7.x 宿主回归应无该字段（故意不加）
-  - [x] dbCryptoStorage 8.0 存活性（2026-10-30 dev-bridge 实机：写入 `{ok:true}` / 回读 `true` / 清除全通——运行时未下线）
-  - [ ] Chromium 132 三旧坑复验：全局滚动条令牌样式（121+ 标准属性互斥）、侧栏折叠网格过渡、reduced-motion 布局楔死（`transition-property:none` 方案）——UI 渲染层，桥测不到，需人工回归
-  - [ ] plugin.json `explain`+`description` 双字段在开发者工具加载与市场侧的接受度
-
-## 开源协议
-
-本项目采用 [GPL-3.0](LICENSE) 协议发布（GPL-3.0-only）。
+GPL-3.0-only

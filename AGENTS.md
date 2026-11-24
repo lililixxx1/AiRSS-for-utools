@@ -1,107 +1,37 @@
-# AGENTS.md — AiRSS（uTools 智能订阅阅读器）
+# AGENTS.md — AiRSS（uTools 8.0+）
 
-一期核心阅读器 + 二期 AI 增强管线：Vue3 渲染层 + Node preload 服务层，运行于 uTools 宿主。设计语言为暖米白 + 单一橙色强调。
+> 详细架构与存储设计见 [ARCHITECTURE.md](ARCHITECTURE.md)；uTools 宿主开发参考见 [.agents/skills/utools-plugin-dev/SKILL.md](.agents/skills/utools-plugin-dev/SKILL.md)；重要决策归档在 `docs/adr/`。
 
 ## 常用命令
 
 ```bash
-npm install                         # 渲染层依赖（根目录）
-cd preload && npm install           # preload 依赖（独立的第二个 package.json，勿合并）
-cd .. && npm run dev                # 纯浏览器开发（mock 层兜底，无需 uTools）
-npm run build                       # vite 构建 → dist/
-npm run typecheck                   # vue-tsc --noEmit（仅覆盖 src/，preload 是纯 JS）
-node scripts/smoke-preload.js       # preload 冒烟（95 项：XSS/GBK/解析/OPML/提取消毒/摘要启发式/站内适配/真实抓取/发现复用+页面相对候选）
-node scripts/test-db-mock.js        # 数据层+端到端管线（74 项：判重/写序/保留/级联/双前缀搜索/ensureFull 状态机/失败记忆/适配落库）
-node scripts/test-ai.js             # AI 管线（129 项：enrich/缓存/额度/abort/轻量批/翻译/T-09/翻译×提取并发）
-node scripts/check-preload-mapping.js  # preload/index.js 服务映射静态核对（防拼错实机炸）
-node scripts/check-theme-contrast.js   # 多主题配色守门（warm 快照+令牌完整+对比度矩阵；改 tokens.css 配色必跑）
-node scripts/bench-search.js [N]    # P3 内容搜索万级测量（itemfull+itemfullx 灌水，默认 12000）
-python scripts/make-logo.py         # 重新生成 logo.png
-node scripts/make-release.js        # 组装发布目录 release/（构建+拷贝+剔除 node_modules 调试文件+自检+版本盖章；上架打包专用。版本唯一真源=package.json：改版本只动它，发布包 plugin.json 由脚本盖章，源 plugin.json 的 version 仅供开发模式参考）
+npm install                               # 安装渲染层依赖
+cd preload && npm install && cd ..        # 安装 preload CJS 依赖（请勿与根依赖合并）
+npm run dev                               # 纯浏览器开发（src/lib/mock.ts 兜底，支持 ?view=reader|settings|addfeed|recommend）
+npm run gen:types                         # 从 preload/index.js JSDoc 派生 src/types/generated/
+npm run typecheck                         # vue-tsc --noEmit（含自动生成的 window.airss 契约检查）
+npm run build                             # vite build + scripts/build-dist.js → 产出单一可运行目录 dist/
+node scripts/check-theme-contrast.js      # 4 配色 × 明暗主题对比度与令牌守门（改 tokens.css 必跑）
+node scripts/check-preload-mapping.js     # preload/index.js 与 core/services/d.ts 映射一致性核对
+node scripts/smoke-preload.js --offline   # preload 冒烟（加 --offline 跳过外网抓取）
+node scripts/test-db-mock.js --offline    # 数据层与抓取/提取状态机测试
+node scripts/test-ai.js                   # AI 管线、reasoningEffort 与 BYOK 两级存储测试
+node scripts/test-v2-core.js              # v2 存储分层、MiniSearch、迁移、生命周期与定时任务测试
+node scripts/test-dev-bridge.js           # utools-dev-bridge 实机端到端验证（需 UTOOLS_MCP_KEY）
 ```
 
-浏览器 dev 直达状态：`?view=reader` / `?view=settings` / `?view=addfeed` / `?view=recommend`。
+## 核心开发纪律（改代码前必读）
 
-## 架构边界（改代码前必读）
-
-- **双包结构**：根 `package.json`（渲染层，vite/ESM）与 `preload/package.json`（CJS 锁定，如 p-limit@3；**须兼容双宿主——uTools 8.0 = Electron 34/Chromium 132/Node 20.19.1，7.x = Node16**）相互独立。preload 源码直供、不打包，node_modules 原样随包。
-- **preload = 唯一数据/网络通道**：`preload/index.js` 挂 `window.airss = { db, feed, article, opml, scheduler, ai, log, sys }`。渲染层（src/）只能经 `window.airss` / `window.utools` 访问数据与网络，不得直接 fetch 或读写 utools db。
-- **双道信任模型（安全基线）**：preload 是唯一 HTML 生产方（sanitize-html 白名单）。渲染层任何组件不得注入原始 HTML；正文一律走 preload sanitize 后的产物。**原始 HTML 只留在 preload**：`fetchFeed` 的 `html` 字段仅供 `discoverFeed` 内部复用（页面非 feed 时免二次抓取），渲染层入口 `airss.feed.fetch` 必须挂 `fetchFeedPublic`（剥 html；2026-10 优化加，勿映射回 `fetchFeed`）。
-- **AI 密钥边界**：BYOK 密钥只存 `utools.dbCryptoStorage`、只在 preload/services/ai.js 内读取，**永不出 preload**（渲染层只能 `hasByokKey()` 探测）。BYOK 请求强制 https（http 需显式配置确认）且拒绝重定向。**dbCryptoStorage 已从 uTools 8.0 官方文档移除（运行时未说明下线）**：2026-10-30 起 `setByokKey` 包 try/catch 返回 `{ok:false,error:"CRYPTO_STORAGE_UNAVAILABLE"}`（设置页显式报错不静默炸，mock/env.d.ts 同形返回 `{ok}`）；**2026-10-30 dev-bridge 实机（8.0.2）确认运行时未下线**（写入/回读/清除全通），明文文件回落继续不做。
-- **无 router**：视图由状态机切换（stores/ui.ts），不要引入 vue-router。
-- **mock 层**：纯浏览器 dev 时 `main.ts` 检测无 `window.airss/utools` 则装 `src/lib/mock.ts`（localStorage 存储，不做真实网络）。uTools 内 mock 完全不生效。注意：mock.ts 注释提到的 `api.ts` 并不存在，stores 直接调 `window.airss`。
-
-## 数据模型约定（src/types/index.ts ↔ preload/services/db.js 一一对应）
-
-- 文章 id = `guid‖link‖title` 的 SHA-256 前 12 位；contentHash 变化才覆盖内容；`read`/`starred` 恒保留；items 全部写入成功才推进 feed 元数据（写序）。
-- 改文档结构必须双侧同步：先改 db.js 文档形态，再同步 `src/types/index.ts`。
-- **schemaVersion = 3**（二期已落地，v1.2 增补字段同属 v3 桶）：item 增加 `ai: { summary, tags[], titleZh, titleNorm, aiSource: 'batch'|'enrich' }` 与 `aiTrans: { paras:[{idx,head,text}], at, model }`（段落翻译纯文本，可选，旧文档缺失按 undefined 读）；`aiStatus: 'none'|'done'|'error'`（pending 仅存在于调用方内存）。contentHash 变化时 ingest 会清空 ai 与 aiTrans 并复位 aiStatus/titleDisplay（T-09）。
-- **titleDisplay 语义**：AI 改写标题的展示位（titleNorm > titleZh > 原 title；与原标题相同则等于 title）。titleNorm 口径 v1.2 起为"AI优化标题"（冗长/含糊/标题党→清晰客观中文，≤24 字）；模型超长产物按可读边界截断（clampAiTitle：标点/空格处切+补「…」，硬上限 30 含省略号——2026-10-31 宿主实测 34 字标题被无脑 slice 成「…：百万tok」铺上列表而加，勿改回裸 slice）。
-- **AI 缓存文档**：`ai:enrich:v2:{contentHashTrunc}:{titleHash}`（复合键，正文截 2000 字哈希；v2 = AI优化标题口径）、`ai:cls:v2:{titleHash}`、`ai:trans:v2:{sha12(joined)}`（纯内容键，feed 联播同文跨源复用），LRU 上限 5000；额度分池手动 120/日、后台 30/日（BYOK 豁免）存 dbStorage。
-- **渲染层设置新增字段**（如 `aiAutoCount` 0/1/3/5，默认 0=关闭自动、逐篇手动 AI 按钮，2026-09 由 1 改 0；v1.3 的 `muteWords/highlightWords: string[]` 默认 []）：只动 `src/types/index.ts` 的 Settings/DEFAULT_SETTINGS（settings.ts 按 DEFAULT 键集序列化，旧数据自动 merge 默认值）。首用引导的推荐订阅源胶囊改由 `src/lib/recommend.ts` 单一真源驱动（v1.9：`RECOMMEND_GROUPS`/`RECOMMEND_CHIPS`/`RECOMMEND_ALL` + `feedUrlKey`/`isSubscribed` 归一判重），空态只铺前 4 个芯片、其余进「推荐订阅」页；点击只开 addFeed 弹窗预填 URL 走发现确认，不自动入库。
-- **v1.9 推荐订阅页（改它前必读）**：`ui.view='recommend'`（ViewName 第 4 态）覆盖内容列，与设置页同层（`--z-reader`）；清单准入纪律=**每个 URL 必须实测通过**（发现→解析；2026-10-30 体检淘汰 V2EX / 36氪 / HN / 虎嗅 / 产品沉思录——超时或被反爬挡，发现管线要等 48s 才落失败态，进推荐位等于让用户白等）。四处同源、都读 `lib/recommend.ts`：侧栏「订阅源」标题下入口（设置 `recommendEnabled` 默认 true，关掉只隐藏入口；折叠轨退化为 sparkle 图标钮，保证入口不死；宽幅悬停出 ⋯ 菜单——与订阅行/分类行同构 `.rec-row` 容器，菜单「打开推荐订阅 / 隐藏推荐入口」，隐藏即关同一设置项并 toast 指路，**不得另造第二套开关**）、空态「更多推荐」芯片（受同一开关约束）、设置页「外观 · 推荐订阅入口」、推荐页本身。**已订阅行点击 = 跳到该源列表**（按 `feedUrlKey` 归一找到 feed），**不得再走 addFeed**——重复添加会造出重复的 feed 文档。⌫ 一级退出（backLadder 排在 settings 之前）；列表导航键（j/k/Enter/m/s）在推荐页整段屏蔽，否则会穿透操作背后被遮住的列表。
-- **v1.3 增量（全部可选字段，schemaVersion 仍为 3）**：`itemfullx:{item._id}` = 全文提取版（Readability 产物消毒 HTML，独立前缀**不写回 itemfull**——与 ingest 写序/contentHash 判重解耦；ingest 内容变化、retentionClean、deleteFeedCascade 均连带删它，T-09 同族）；`Feed.fullText?: boolean`（每源全文开关，默认关；发现管线 discoverFeed 候选带 `summaryOnly`——feed.js `looksSummaryOnly` 抽样前 5 条正文中位纯文本长度 <600 字〔与 extract.js rich 守卫同线〕判摘要型，AddFeedModal 据此智能预开「抓取全文」并显示判定文案，2026-09-12 落地，取代推荐位手工 fullText 预设）；`Feed.order?: number`（拖拽排序：首次拖拽 initOrderOnce 批量赋值，此后新增源无 order 排末尾）；`ListFilter` kind 含 `'tag'`（定义在 data.ts）。searchContent 扫 itemfull+itemfullx 双前缀（同 id 去重）。
-- **v1.4 增量（AI 目录 + AI 工具面板，PLAN-AI-TOC；可选字段，schemaVersion 仍 3）**：`item.aiToc: { sections:[{title,idx,head,level?}], at, model }`（AI 目录纯数据；head 由 preload `tocAnchorSections` 从**当前输入段落**按 idx 查表补全，AI 与缓存都不回写 head；level=目录层级 1-3，PLAN-TOC-LEVEL，旧数据缺失按 1 平铺读）；缓存 `ai:toc:v2:{sha12(joined)}` **纯内容键**（v2=两级层级协议，载荷 {title,idx,level} 不含 head）——extract 全文替换不更新 contentHash，挂它会命中旧目录写入 head 全失配死数据（送审确认）；失效联动 T-09 族三处（db.js ingest / extract.js 落库2 / ReaderPanel maybeExtractFull 清内存并 resetToc，Teleport 面板不随 reader 卸载必须强关）；前端结构目录（h2-h4 ≥2 个）不落库打开现算，**层级=实际出现的标签秩排序后序号映射 1..n（纯 h3/h4 归一为 1/2，防全缩进；PLAN-TOC-LEVEL）**；**v1.5 AI 入口=阅读区右下悬浮轮盘（PLAN-AI-WHEEL，设计系统 C19：hover 预览移开即收、点击展开锁定再点才收，摘要/翻译/目录/文内搜索四项左上弧排、点击直达动作；顶栏「AI」按钮已撤）**，AiToolsPanel 三区（目录/摘要/翻译；翻译按钮已从顶栏撤入面板，AiSummaryCard 仍在正文原位）由轮盘目录项打开、底部触发 place() 向上翻转；轮盘热区=容器 pointer-events:none + document mousemove 联合矩形保活，键盘焦点转移必须 nextTick（rAF 在节流/后台窗格被冻结会滞留球上，2026-09 回归实测）；**v1.7 轮盘加第四项「文内搜索」（PLAN-WHEEL-FIND：R=110、30° 等距四分之一弧 -90/-120/-150/-180、热区随之 120→140=R+项半径22+缓冲8；非 AI 功能不受 aiEnabled 置灰恒可点，emit "find" → ReaderPanel onWheelFind 开 readerFind 并顺关 railSearch）**。
-
-## AI 管线要点（改 preload/services/ai.js 前必读）
-
-- **默认关闭**：`settings.aiEnabled`（渲染层）与 ai 配置 `enabled`（preload 侧硬门控）均默认 false；设置页开关经 `setAiEnabled` 双写保持同步，勿只改一侧。
-- **诊断日志**：`preload/services/logger.js`（环形 500 条，dbStorage 持久，console 镜像）；ai.js/scheduler.js 已埋点，设置页「诊断日志」可复制/导出/清空。**纪律：BYOK 密钥/接口地址、完整正文一律不入日志（T-11）**。
-- **流式兼容防御**（2026-09 AI 摘要截断问题加）：① resolve 后 150ms 宽限取更长者（防提前 resolve 竞态）；② 快照式流回调（给累计全文）自动检测切覆盖累计；③ 元信息各段允许跨行。改 callUtools 时勿删这三处。
-- **卡死防御**（2026-09 实机假死问题加）：① 引擎调用 60s 硬超时（`engineTimeoutMs`，永不 resolve 也能退出）；② 渲染层流式 UI 80ms 节流（token 风暴会冻死渲染线程）；③ `main.ts` 宿主内 `window.airss` 缺失时显示致命错误页（preload 挂载失败不再白屏假死）；④ 全局 error/unhandledrejection 落日志。logger 落盘 1s 防抖（逐条写 dbStorage 是同步 IPC）。
-- 双引擎：`utools.ai`（默认，流式，宿主 ≥7.0，特性检测 `typeof utools.ai === 'function'`）与 BYOK（OpenAI 兼容 `/chat/completions`，SSE 流式解析在 http.js `postJson`）。**8.0 关思考提速（2026-10-30）**：宿主主版本 ≥8 时 utools.ai 调用固定附加 `reasoning_effort:"none"`（8.0 默认模型通常开思考、推理显著增加响应时间；本插件四条管线均机械文本处理，官方建议关思考）——版本判定走 `hostMajor()`（memoize 解析 getAppVersion，探测失败=0 回落不附加、7.x 行为不变；`__test.resetHostMajor` 复位），BYOK 不传该参（第三方网关对未知参数宽容度不一），完成日志带 `effort` 字段可实机实证。
-- **enrich 合并调用**（打开文章，手动池）：一次产出 titleZh/titleNorm/tags/summary，头部元信息 `【titleZh】…【titleNorm】…【tags】…` 解析失败整体降级纯摘要；**流式原子性（H2）**——产物仅完整结束才写缓存与 item，abort/失败全丢弃，abort 已产出文本仍计额度（F4）。
-- **轻量批**（刷新完成后 data.ts 自动触发，后台池，≤20 篇/批；**aiAutoCount=0 时不跑——2026-09-10 门控，用户关「自动摘要」= 不发任何自动 AI，勿按旧注释当 bug 修回**）：只发标题+首句，严格 JSON 回写；**回写前 get() 复验存在（H4），batch 永不覆盖 enrich 产物（T-21）**，按篇隔离失败。
-- prompt 正文用 `<<< >>>` 栅栏包裹（T-58，正文内指令样文本不构成指令）。
-- **AI 目录（v1.4；PLAN-TOC-LEVEL 层级化）**：`generateToc` 手动池，输入全量段落（每段截 200 字、总量 10000 字，超出面板标「仅覆盖前 X%」= 末章 idx+1÷全文段数）；`[[idx|level]]标题` 两级行协议解析（level 1=章 2=子章，缺省 1、越界 clamp 1-3 不丢行、标题剥 `#` 前缀；同 idx 去重保首 + 升序）；**输入行 h1-h6 段带 markdown `#` 前缀（`[[idx]]## 标题`，paras.tag 透传——generateToc 限幅循环重建对象必须随传 tag，漏传则标记静默失效）**；渲染层门槛常量 `TOC_MIN_HEADINGS=2`/`TOC_MIN_CHARS=1500` 在 ReaderPanel——**collectParasAll 里 h1-h6 不受段落 ≥10 字文本门槛限制**（2026-09 回归实测：短标题被滤光导致前端目录整体为空）。**摘要连带目录（2026-09-10，PLAN-AI-TOC §13）**：runEnrich 成功分支对「无结构长文且无 aiToc」自动 runToc——必须 await 且先于 prefetchNext（runToc 入口与预取每步都按单飞纪律 abort，并行互杀），await 后补 seq 守卫；结构文/短文/已有目录零增量；列表卡片 summarizeItem 与「打开已有摘要」分支（含被预取补实后打开）不连带，仍走面板/轮盘手动。
-- **v1.3 全文提取联动（extract.js，改它前必读 PLAN-V1.3 §1.1）**：enrich 正文获取走 `getItemFullBest`（优先 itemfullx 提取版）；Readability 输出按不可信输入处理、一律过 sanitizeContent，相对 URL 先在 DOM 层绝对化（否则 scheme 白名单剥光）；**翻译/提取并发弃写守卫**——translateItem 写回前查 `itemfullx.at > t0` 则弃（CONTENT_CHANGED，防复活已被提取层清理的旧译文，渲染层安静回「翻译」态）；空 body（bot 挑战 202+0 字节）/截断 TOO_LARGE/短于 600 字各有独立错误码，渲染层统一安静降级无 toast；日志只记 {itemId,status,ms,error}（URL/正文不入，T-11）。
-
-## RSS 内容适配要点（改 feed.js / extract.js / adapters.js 前必读，2026-10 PLAN-RSS-ADAPT）
-
-- **为什么有站内适配层**：RSS 生态里有一类源不是语义化 HTML，通用启发式（Readability）在它们身上必然失真——HelloGitHub 月刊的项目名/仓库链接写在 `<a><div>项目名</div></a>` 里，Readability 按「链接密度」判为页面杂质整块剔除，全文只剩 Star 数与描述；Indie Radar 条目页是「摘录→AI 导读→推荐理由→标签→来源」栏目区块，Readability 会把元信息行与标签云掺进正文，且正文短于 600 字落库门槛 → 白抓一次仍显示 feed 两行。`preload/services/adapters.js` 是**唯一**的站点特化入口。
-- **两类注册表**：`FEED_ADAPTERS`（按 **feed URL** 匹配，`parseFeedXml` 内清正文固定噪音，如 AIGC NEWS 每篇尾部的「📮 全文 RSS…订阅」引流文案）+ `ARTICLE_ADAPTERS`（按**文章 URL** 匹配，extract.js 在 Readability **之前**直接产结构化正文：hellogithub 读 `#__NEXT_DATA__` 的 `volume.data`，radar 按 article 子节点顺序重组）。新增站点适配只在这两个数组里加一条 + 补 smoke fixture。
-- **适配纪律**：适配器只读 DOM、只产白名单标签（p/h2/h3/a/strong…）、属性一律 `esc` + `httpUrl` 校验（非 http(s) 丢弃，hellogithub 仓库地址回落 `https://github.com/<full_name>`）；**任何异常一律返回 null 回落 Readability**，绝不能让适配层炸掉提取链路；产物仍过 `sanitizeContent`（协议白名单/on* 剥除/100KB 截断）。
-- **适配产物门槛 `ADAPTER_MIN_CHARS=80`**（≠ 通用 `FULLTEXT_MIN_CHARS=600`）：结构化栏目天然短篇，按 600 拦等于把这些源唯一有效的内容丢回摘要；短于此按「页面改版/空壳」回落通用链路。落库 `itemfullx` 时 `src="adapter:<id>"`（通用链路仍是 `readability`）。
-- **封面补写**：全文落库时补 `item.cover`，**只补空不覆盖**已有封面，来源二分——适配器给站点自有封面（hellogithub 首项配图、radar 条目页 og:image）；通用 Readability 链路取提取正文首张合格图（`extractCover`，卡片 banner 另有自然尺寸二次门控，不会把小图拉伸）。正文不内联项目配图（月刊 35 张动图会把阅读页拖死）。
-- **纯文本正文段落化**（`article.paragraphizePlainText`，`parseFeedXml` 内统一过）：description 无标签、只用 `\n` 分段的源（聚合源常见）原样进 sanitize 会被浏览器折叠成一堵墙。规则：已含标签/无换行 → 不介入（否则 contentHash 全量抖动）；空行硬分段 + 中文「一段一行」逐行成段 + 拉丁文硬折行（上一行 ≥40 字符、无句末标点、下一行小写起头）接回同段。**摘要口径**：默认仍用 rss-parser 的 `contentSnippet`（「description=编辑手写摘要 + content:encoded=全文」的 WordPress 系源靠它保住编辑摘要），**只有本模块真的改过正文**（站点适配命中 / 纯文本被段落化）才改由最终正文派生——否则适配剥掉的尾巴又会被原始 snippet 带进列表摘要。
-- **聚合型源信号 `externalLinks`**（`discoverFeed` → `FeedCandidate` → AddFeedModal）：抽样 5 条 link，≥60% 落在「feed 域 ∪ channel.link 域」之外 → 聚合型（原文在第三方站点，抓全文基本失败），确认步**不预开「抓取全文」**并换文案；`siteUrl` 参与判定，避免 feed 托管第三方（feedburner）时误判。
-- **发现管线（2026-10 优化，PLAN-DISCOVER-FAST）**：探测顺序 = 直连 → `<link>` 声明 → **页面相对候选**（`pathFeedCandidates`：`/blog/` 与无尾斜杠 `/blog` 都展开 `/blog/feed|rss|atom.xml|feed.xml|index.xml|rss.xml`；**重定向落地地址也参与**——`fetchFeed` 非 feed 时回传内部 `finalUrl`，裸域 → `/blog/` 这类跳转后按落地路径找）→ 站点根常见路径；路径候选走 `probeFirst` 有界并发（3 路 / 5s），失败态由 6×5s 串行降到约 10s。声明源保留 8s 超时但只有 **300ms 优先窗口**——窗口内无应答且存在页面相对候选即并行探测，先成功者返回（feedburner 类不可达声明不再拖死子路径博客；阮一峰 `/blog/` 实测约 2s 找到 `/blog/index.xml`）。**边界**：声明源在窗口后未应答时其请求会在后台跑到 8s 超时（async I/O 不阻塞 UI、http.js 超时后清理）；同组多候选可用时取最先响应的等价源；`html`/`finalUrl` 仅 preload 内部复用，公开入口剥除。
-- **失败记忆**（extract.js）：`FETCH_*`/`EXTRACT_*`/`EXTRACT_TOO_SHORT` 记入内存 `failureMemo` 10 分钟（`MEMO_TTL_MS`，上限 200 条），同篇反复打开不再发注定失败的请求（Indie Radar 短页、外链聚合站实测每次打开都会白抓）；成功路径走 `itemfullx` 持久缓存，不进 memo。**改这些分支的测试前先 `extract.__test.clearMemo()`**，否则上一个失败原因会短路下一个用例。
-
-## 设计规则（改 UI 前必读 docs/design-system.md）
-
-- 设计令牌在 `src/styles/tokens.css`；深色主题独立调校（非浅色反色），对比度结论见设计系统 §3.3。
-- **多配色体系（v1.4，PLAN-THEMES）**：配色（`data-palette`：warm/sepia/sage/indigo）与明暗（`data-theme`）正交；warm 缺省两块逐字节锁定（改 warm 必须同步 `scripts/check-theme-contrast.js` 内嵌快照）；**改任何配色/加新配色必须过 `node scripts/check-theme-contrast.js`**；组件不得引入私有 hex（swatch 取色走 `--p-sw-*`）。
-- `docs/preview.html` 是像素基准；z-index 阶、动效令牌、间距圆角均以设计系统文档为准。
-- **浮层进出场统一走 base.css 全局 Transition 类（v1.8 PLAN-POLISH）**：pop=菜单/小面板 120ms、fade=fixed 面板与 scrim 160ms、modal=scrim 淡入+面板 scale（根/子同值）、toast=TransitionGroup（离场不脱流）；组件勿自造浮层动画。spinner 统一 `.spin`/`spin-360`（base.css）。滚动条已全局令牌化（thumb=`--border-strong`），组件勿私改。新增 `:active` 按下态必须排在 `.on/.cursor/[aria-selected]/:hover` 规则之后（源序纪律，否则按已选项无反馈）。
-- AI 视觉：AiSummaryCard 规范见设计系统 **C16**（accent-soft 底 + 左缘 3px accent-strong，AIGC 徽章恒显，失败降级不阻塞阅读）。
-
-## 已知坑
-
-- **ai.js 单飞纪律（2026-09 v1.2）**：引擎调用必须经 `callEngine`——其 `claimGate` 在起飞前比对发起序 `callClaim`（abort()/enrich/translateItem/batchEnrich 入口都自增），序号落后即自弃，封死"前奏中被 abort、注册时反而覆盖新调用句柄"的双飞窗口。绕开 callEngine 直调 `utools.ai`/postJson 会重现该窗口；渲染层发起任何 AI 调用（enrich/翻译/手动摘要/预取每步）前先 `window.airss.ai.abort()`。
-- **preload 里 Node API 与渲染层对象 realm 不匹配**：preload 的 `new URL()` 产出的是网页平台 URL 对象，不是 Node realm 实例；把它传给 `http(s).get(urlObj, options, cb)` 会错位成 `(options, cb)`，报 "The listener argument must be of type function"。凡传给 Node 内置 API 的 URL 一律用**字符串**（2026-09 已在 http.js 修过）。同理警惕其他 `instanceof` 跨 realm 判定。
-- **preload 服务映射拼错本地全绿、实机必炸**（retentionClean 拼错事故）：改 preload/index.js 挂载后必跑 `node scripts/check-preload-mapping.js`。
-- **原生 `<select>`/`<datalist>` 弹层在 uTools 无边框窗内定位错位**（2026-09 实机：添加订阅选分类触发）：OS 原生弹窗坐标在 Electron 无边框窗里算错，页面 CSS 救不了。全站禁用，一律用 `DropdownSelect`/`ComboboxInput`（面板 Teleport+fixed，见 design-system C17）。
-- **渲染层对象是 Vue reactive Proxy，utools IPC 结构化克隆不支持**：store 里的 feed/item 文档原样传给 preload 再进 `utools.db.put/bulkDocs` 会抛 "An object could not be cloned."（2026-09 实机日志定位：refreshOne/recalcUnread 全灭，而先 `db.get` 再写的 setRead/applyAi 正常——mock 层无 IPC 感知不到）。已修：db.js 的 `putRetry`/`bulkSharded` 入库前统一 `plainClone`；新增把渲染层对象送进 utools.* 调用的代码时，必须先克隆或只传原始值。**同族第二例（2026-09-07 实机）**：`settings.ts` 的 `set()` 曾把 `out[k]=this[k]` 直接送 `utools.dbStorage.setItem`——`muteWords/highlightWords` 是 reactive 数组，宿主内**每次设置写入都抛错**，且异常吞掉调用方后续语句（AI 开关的 preload 双写从未执行、浏览器 mock 不做克隆所以全绿）；已修为 `Array.isArray(v) ? [...v] : v`。任何 `dbStorage.setItem` 的对象载荷都要按此纪律消毒（theme.ts posCache 是模块级普通对象，安全）。
-- **`transition: grid-template-columns` 会拖死渲染线程**（2026-09 实测 MCP 浏览器卡死）：侧栏折叠的 grid 轨道只能瞬时切换，禁止加过渡。
-- **`.app` 必须显式 `grid-template-rows: minmax(0, 1fr)`；grid 子项不写 `height:100%`（靠默认 stretch）；分离窗 `.reader` 必须有 flex 高度链（2026-09-08 实机三连修）**：uTools 宿主最大化后曾出现 BrowserView 视口被压成 244px 窄条的宿主 bounds 异常，暴露出三处布局弱点——① 不写行轨道时隐式 auto 行被侧栏内容顶穿到 8167px（footer「设置/折叠」与 ⋯ 出画），`minmax(0,1fr)` 定高行轨道修复；② grid 子项 `height:100%` 改为默认 `align-self: stretch`（.sidebar/.main-col/.reader-col，stretch 对内容免疫）；③ **分离窗（detached）的 `.reader` 是 `position:relative` 且曾无任何高度约束**——`.reader-col` 是普通块容器，子元素 `height:auto` 被正文撑成整文高度（实机探针 clientH==scrollH==10012，永不溢出→滚轮无效），修法：`.reader-col{display:flex;flex-direction:column}` + `.reader.detached{flex:1;min-height:0}` + `.reader-scroll{min-height:0}`。**教训：detached 模式浏览器 mock 走不到（onPluginDetach 仅宿主触发），回归时用 `pinia._s.get('ui').detached=true` 强制激活**；非分离模式的 `absolute inset:0` 路径测过了不代表分离窗没问题。
-- **分离窗三栏最小宽 1080（280+360+440），窗口窄于此阅读列被 overflow:hidden 裁出画、肉眼只剩两列**（2026-09-11 实机：最大化三列正常，调回默认尺寸 ~800px 变两列）：修法是窄幅自适应——`ui.winNarrow`（App.vue 挂 resize 监听，<1080 置位，onPluginDetach 内也重算一次防宿主不派发 resize）+ getter `ui.narrowDetached`（App/Sidebar 单一来源，勿各自合取分叉）驱动 `.app.detached.sb-auto`：侧栏自动降 64px 图标轨 + 列表/阅读列最低宽下调（≤704 media 再压一档至 260/280，地板 604），三栏恒可见；自动折叠**不写 `sidebarCollapsed` 设置**（有效折叠 = 用户设置 ∪ 窄幅；**窄幅展开钮改开浮层抽屉 `ui.sbDrawer`**——2026-09-12 实机回归：上一版把窄幅展开钮藏掉防死键，侧栏被永久锁死在图标轨打不开。抽屉 = aside `.drawer` fixed 全高 280 盖在列表列上方 + 背板（z 阶：背板 `--z-scrim` 500 / 抽屉 501，均低于 modal 600——抽屉里发起的确认弹层要盖住抽屉），网格与设置都不动；选中订阅/背板/⌫（backLadder）/拖宽（watch autoNarrow）即关；**`.app.detached .main-col/.reader-col` 的显式 grid-column 钉列必须保留**——sidebar 变 fixed 脱离网格流后，剩余 grid 子项会被自动排进第 1 轨；折叠轨配搜索钮唤起浮层搜索面板 `ui.railSearch`（**恒为列表搜索，v1.7 起不再改道文内搜索**；列表态 Ctrl+F 同路，阅读态 Ctrl+F/轮盘搜索项开文内搜索——PLAN-WHEEL-FIND），分离窗侧栏搜索框是唯一列表搜索入口，勿再引入静默失搜）。纪律：`.sb-auto` 规则必须排在 `.sb-collapsed` 之后（同特异度按源序覆盖）；`.reader-col` 的 min-width 必须与轨道 min 同步下调（track 定长 min 不吃 item min-width，不一致会溢出轨道）；`.reader-bar` 已改 wrap 降级（窄阅读列四枚文字钮 ~400px 装不下换行两行，正常宽度单行不变），**AiWheel 悬浮球锚定 `.reader-body`（顶栏+滚动区容器，底栏之外）底距恒 12px、随底栏高度自然让位——勿改成 JS 测高/ResizeObserver 跟随，遮挡窗格里 RO 回调随渲染帧节流会滞留旧值**。
-- **阅读态文内搜索（v1.6，PLAN-READER-FIND；方案经 plan-code-reviewer 审核闭环，B1-B6/S1-S10 已并入；v1.7 入口调整见 PLAN-WHEEL-FIND）**：`ui.view==='reader' && ui.readerItemId` 时 Ctrl+F 与 **AI 轮盘搜索项**开 `ui.readerFind` 文内搜索栏（ReaderFind 组件，`data.search` 列表管线与展开态侧栏搜索框一字不动）；**v1.7 撤折叠轨搜索钮改道——轨内钮恒为列表搜索（Sidebar.toggleRailSearch），两搜索面双向互斥（任一侧打开顺关另一侧：轨内开→关 readerFind；readerFind 开→关 railSearch），非分离窗阅读态轨内输入=过滤无反馈、data.search 无命中时阅读态 j/k/Enter/m/s 静默失效（filtered 空），属已知局限**；已开态再触发（Ctrl+F/轮盘项）走 `ui.readerFindFocus` 令牌重聚焦+全选（同值赋 open 不触发 watch）。**纪律**：① 面板是 `.reader-body` 右上 **absolute 悬浮卡**（2026-09-12 用户裁决悬浮化：flex 插行挤压正文观感差被推翻；不占 flex 行高、正文滚动区尺寸恒定，遮挡由跳转补偿消化——目标块顶对齐「面板底沿+8」且与正文列横向相交才补偿，勿改回 scrollIntoView block:"start" 直滚）；② 搜索枚举 `FIND_SELECTOR`（src/lib/find.ts）**按 sanitize 白名单推导**、不含 table/thead/tbody/tr（含 tr 会让嵌套去重守卫误杀 td），且必须兜底 `.ra-content` 直挂裸文本 pseudo-block（sanitize `disallowedTagsMode:"discard"` 把 div/figure 剥成裸文本，不兜底就无声漏报）；③ 对正文 DOM 只读（textContent/scrollIntoView/装饰类），**find-flash 闪烁样式只能落 ReaderPanel 的 `:deep`**（作用于 .ra-content 子树，ReaderFind 的 scoped 够不着父链）；④ 强关复位**不放 resetToc()**——maybeExtractFull 也调它，提取落地要不关面板靠 htmlKey watch（`flush:'post'`，PERF-2 枚举纪律）重算且**不滚动**（query 路防抖后重算+跳第一处；提取落地时自动跳回第一处会把阅读位置记忆一并改写）；复位放 readerItemId watcher 与 onBeforeUnmount 两处；⑤ 关面板靠 × 钮 / 焦点不在输入框时 ⌫（backLadder 在 sbDrawer 后、关阅读前有 readerFind 分支）；输入框空时 ⌫ 由组件自关（Esc 全线移除，见已知坑「全站 Esc 不作页内键」）；⑥ flash 类与定时器成对管理（单句柄只 clear 不移类=永久残留高亮）、150ms 防抖定时器卸载/关闭双清；⑦ **面板高度上限必须挂在自身**（悬浮化后 `.reader-find{max-height:calc(100%-72px)}` 锚定容器 `.reader-body` 定高、百分比可解析，列表另设纯定值 `max-height:288px` 双上限 + `flex:1+min-height:0` 内部滚动；max-* 内 min(…,百分比) 的百分比分支有 Chromium 不生效怪癖，一律不叠 min()）——把 `max-height:%` 写在参照 auto 高父级的子元素上=indefinite 整体失效等于没写，命中列表无限增长把 `.reader-scroll` 压到几行（2026-09-12 实机：15 命中吃掉正文区）；验证面板类组件必须量实际高度，别只数行数。
-- **prefers-reduced-motion 下布局楔死**（2026-09 浏览器全功能回归发现并修复）：base.css 的 reduced-motion 块曾只压 `transition-duration`——property 默认 all 会把 grid-template-columns 等**布局属性**也送进过渡管线，撞 Chromium 轨道过渡不刷新 bug，侧栏折叠在「减少动画」系统（Windows Server/RDP 常默认开）上楔死在 280px。现改为 `transition-property: none !important`，勿改回 duration 方案。同类教训：tokens.css 注释声称的「--reading-fs 4 档由 fontLevel 驱动」曾从未实现（驱动代码在 App.vue watchEffect，删了字号就恒 16px）；阅读位置快照必须先于 `html=""` 捕获（onUpdated 节流保存会在空正文阶段把 0 写回存储）。
-- **全站 Esc 不作页内键（2026-09-12 用户裁决，PLAN-ESC-BACKSPACE，方案经 plan-code-reviewer 审核闭环）**：主窗 Esc 被 uTools 宿主优先消费直接隐藏插件（页面拦不住），Esc 分支已整体移除（含分离窗）——⌫ Backspace 是唯一页内返回/关闭键（backLadder：模态→sbDrawer→文内搜索→关阅读→退设置→清搜索；长按 repeat 只走一级防连跳）。纪律：① 勿再引入任何组件级 Esc 处理或把 Esc 加回全局键盘流；② 输入框内 ⌫ 恒为编辑键，**空值才关当前浮层**（ComboboxInput/轨内搜索/ReaderFind），条件关闭禁用 `.prevent/.stop` 修饰符（无条件生效会拦掉非空编辑态）；③ AiWheel/AiToolsPanel 的 ⌫ document 捕获监听必须带输入态守卫（面板开着 Ctrl+F 焦点落在文内搜索框时不连带关面板）；④ 模态输入框空值 ⌫ 不关模态（安全侧防误清表单，已知限制）。
-- **plugin.json 内嵌正则**：JSON 里的正则反斜杠必须写双份（`\\s`、`\\/`），漏写一个会报 "Bad escaped character"（2026-09 已修过一次，位置 584）。改完用 `node -e "JSON.parse(require('fs').readFileSync('plugin.json','utf8'))"` 验证。**explain/description 双写（2026-10-30 uTools 8.0）**：features[].`explain`（7.x 真名）与 `description`（8.0 改名，运行时双轨兼容）并存——两字段须同值，改文案时**双改**防漂移。
-- **vite `base: './'`**：保证 dist 相对路径在 uTools file:// 下可加载，勿改。
-- **utools.ai 的 abort**：返回 PromiseLike 带 `abort()`；流式模式 `await` 的 resolve 值是 void，内容要靠 streamCallback 自己累积。BYOK 的 abort 走 postJson 的 `register(destroy)` 句柄。
-- 实机（uTools 宿主）待验证项见 README「实机待验证项」与 PLAN-PHASE1.md §12。
-- **`watch(..., { immediate: true })` 的回调在 setup 执行期同步运行**（2026-09 位置记忆实测）：回调里引用声明在 watch 注册**之后**的 `let` 会撞 TDZ（`Cannot access 'x' before initialization`）；async 回调的抛错变 unhandledrejection，UI 无任何感知但该 watch 整条链路死亡（症状：正文空白、进度不存）。setup 内被回调引用的状态/函数一律先声明、后注册 watch。
-- **父级 v-if 同周期卸载的组件，其 pre-flush watcher 会被调度器跳过**（2026-09 位置记忆实测）：`closeReader()` 置 `readerItemId=null` 与父级 `v-if` 卸载发生在同一刷新周期，ReaderPanel 的 readerItemId watcher 不再触发（且此刻 `ui.readerItemId` 已是 null，钩子里按它取 id 也取不到）。切文（组件常驻）靠 watcher 冲刷旧文进度，关闭（组件卸载）必须在 `onBeforeUnmount` 里用自记的 `lastReaderId` 兜底——两条路径都要有。
-- **性能纪律（2026-09 全面优化落地，改回即劣化）**：① 刷新路径 `ingestFeed` 用两次前缀 `allDocs` 预取建 Map 查既有文档（逐条 get 是 2N 次串行同步 IPC，50 条的源=100 次往返）；② http.js get/post 带 keep-alive agent（订阅周期刷新与 AI 网关同源复用 TLS，勿删）；③ `parseFeedXml` 每 5 条让出主线程（sanitize-html 对大正文是 preload 线程 CPU 尖峰，与渲染层共线程）；④ data.ts getters 全部单遍扫描（categories 原是 O(源数×条数) 双遍 filter，任意已读翻转全量重算）；⑤ 阅读进度保存走 800ms 合并定时器 + 滚动监听（纯滚动不触发重渲染，原来读到底也不存）+ theme.ts posCache 内存缓存（AI 流式期间 80ms 一帧重渲染 × 全量 dbStorage 读写是双 IPC/帧）；⑥ **第二轮（2026-09-09，PLAN-PERF-2）**：ReaderPanel 段落枚举双缓存（key=html.value + contains 守卫堵跨源同文死引用；**resetToc 必须同步清 tocMetaKey**——同文重进 key 命中短路会让已清空的目录元信息恒空，回归实锤）+ 目录元信息惰性化（切文只排 rIC(800ms timeout) 预热，消费入口 ensureTocMeta 兜底——布尔 dirty 方案会在 `html=""→await getItemFull` 空窗被预热清脏致整篇恒空，勿改回）；markAllRead 免 loadAll（内存成员判定置 read + **每源未读实算赋值**，不能「减 n」——db 侧 unreadCount 陈旧底数会让徽标残留）；retentionClean 按需预筛（!starred 计数 > keep 才调，与 db.js 口径互为充要，两边注释互指勿单侧改）；AiWheel 热区 rect 在 openWheel 缓存（mousemove 逐次 getBoundingClientRect 在流式渲染期是强制 reflow 源）；⑦ **第三轮（2026-10-31 虚拟列表测量纪律，改回即卡）**：`useVirtualList` 实测高度存**普通 Map**、由单个 `version` 计数器（rAF 合并）驱动偏移表重算——一帧内测 N 行只重算一次；行 `:ref` 必须用 `vl.rowRef(key)` 的**记忆化稳定函数**（模板里写内联箭头会让每次 patch 都「旧 ref 置 null + 新 ref 挂载」，等于逐行强制重排），行高变化由 ResizeObserver 授权（`ArticleCard` 的 cover 被 banner 门控剔除会改变行高，必须能再次测量，故不能退回「只在挂载时量一次」）；同批：卡片/缩略图 `decoding="async"`、`.vl-row` 不再写 `will-change: transform`（几十行各提一层合成层，吃显存又增图层管理开销）。
-- **preload 传递依赖 ESM 漂移：本地全绿、实机 preload 整体挂死**（2026-09-06 实机日志定位：linkedom 0.18.13 依赖 css-select@7 纯 ESM（`"type":"module"`），uTools Electron 的 CJS loader 报 `require() of ES Module ... not supported`，preload 没挂上、window.airss 缺失；本地 Node ≥22.12 默认支持 require(esm) 所以三套测试全过）。已修：linkedom 精确钉 0.18.12（0.18.9–.12 依赖 css-select ^5 纯 CJS）+ extract.js 惰性 require DOM 引擎（漂移复发只降级全文提取，阅读主链路存活）。纪律：preload 依赖任何变动后，三套测试加 `--no-experimental-require-module` 前缀跑（精确模拟实机 loader）；锁版本用精确版本号，`~`/`^` 挡不住点版本悄悄换传递依赖。**2026-10-30 uTools 8.0 备注**：8.0 宿主 Node 20.19.1 已默认支持 require(esm)，但发布包须兼容 7.x Node16——钉版与前缀测试纪律（=模拟 7.x loader）不变。
-
-## 敏感区域前置阅读
-
-- 改 preload 服务 / 安全基线：`docs/PLAN-PHASE1.md`（§2 职责划分、§7 安全基线）。
-- 改 AI 管线：本文件「AI 管线要点」+ `docs/PLAN-ENHANCE.md`（v1.2 AI 增强方案，H1-H5/F2/F4/F5/T-09/T-11/T-21/T-58 编号引用处；编号原始出处 airss-design.md v0.4 §5.2/§6 **不在本仓库**，属外部存档，找不到属正常）。
-- 功能路线盘点（非实施方案）：`docs/PLAN-NEXT.md`——每项启动前仍按惯例出独立实施方案送审。
-- 改任何 UI：`docs/design-system.md`。
-- 交付/打包流程：PLAN-PHASE1.md §11 与 README「接入 uTools」。
+1. **纯净 uTools 8.0+ 与单一目录 `dist/`**：不写 uTools 7.x / Node 16 兼容分支；插件清单模板在 `public/plugin.json`，最终运行与打包目录统一为 `dist/`；`preload/` 与其 `node_modules` 直供不打包，依赖锁定 CJS 兼容版本（更新依赖后务必通过 `build-dist.js` 的 `--no-experimental-require-module` 自检）。
+2. **同步意图库 vs 本机数据边界**：
+   - 仅 `feed:*`、`state:{itemKey}`（懒写）、`star:{itemKey}`、`later:{itemKey}`、`meta:schema` 可进 `utools.db`。
+   - 严禁把 `item:*`、`itemfull:*`、`itemfullx:*`、`ai:*`、传输态或诊断日志写回 `utools.db` 或 `dbStorage`；本机数据一律存放在 `<utools.getPluginLocalDataPath()>/airss-data/`，清库只能删除 `airss-data/`（保护同级目录）。
+3. **生命周期单点注册**：所有 7 项 `utools.onPluginReady / Enter / Out / Detach / DbPull / ScheduleTrigger / MainPush` 仅允许在 `preload/lifecycle.js` 注册一次；渲染层通过 `window.airss.on(...)` 与 `consumePendingActions()` 同步状态，绝不在 `.vue` 中重复注册宿主钩子。
+4. **双道安全边界与 BYOK 存储**：
+   - `sanitize-html` 仅在 preload 执行；原始 HTML 与 `fetchFeed.html` 不出 preload；渲染层 `v-html` 只允许消费 preload 消毒结果。
+   - BYOK 密钥优先写 `utools.dbCryptoStorage`，不可用时降级至 `<airss-data>/byok.local` 并在设置页显式告警，密钥与接口地址、文章完整正文严禁写入日志。
+5. **跨 IPC 与性能优化契约**：
+   - 写入 `utools.db` / `utools.dbStorage` 前必须经过 `plainClone` 或展开为纯字面量（Vue reactive Proxy 不可结构化克隆）。
+   - `data.items` 使用 `shallowRef` 承载轻量条目；正文与 `aiTrans`/`aiToc` 通过 `db.getItemDetail(id)` 按需加载。
+   - 勿对 `tokens.css` 与 `base.css` 破坏对比度或给 `grid-template-columns` 加 CSS 过渡；页内返回统一使用 `Backspace`（不抢占宿主 `Escape`）；无 `<select>`/`<datalist>` 原生弹层。
+6. **类型单一真源**：修改 `preload/index.js` 或服务导出签名后，必须执行 `npm run gen:types && npm run typecheck && node scripts/check-preload-mapping.js`；禁止手写第二份 `AirssServices` 接口。

@@ -3,6 +3,7 @@
  *
  * 安全基线（PLAN §7）：preload 是唯一 HTML 生产方；渲染层 v-html 只信任本模块产物。
  */
+const { Buffer } = require("buffer");
 const sanitizeHtml = require("sanitize-html");
 
 /** 消毒白名单（标签/属性严格白名单，其余全剥） */

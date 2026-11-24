@@ -1,12 +1,13 @@
 {
   "name": "airss",
   "private": true,
-  "version": "1.8.0",
-  "description": "AiRSS - uTools 智能订阅阅读器（一期核心阅读器）",
+  "version": "2.1.0",
+  "description": "AiRSS - uTools 智能订阅阅读器（v2.1 轻量分层与原生入口版）",
   "license": "GPL-3.0-only",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/build-dist.js",
+    "gen:types": "tsc -p tsconfig.preload.json",
     "typecheck": "vue-tsc --noEmit",
     "logo": "python scripts/make-logo.py"
   },

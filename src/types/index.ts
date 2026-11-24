@@ -1,9 +1,10 @@
-/** 数据模型（与 preload/services/db.js 的文档形态一一对应） */
+/** 数据模型（与 preload/core/storage.js 对齐） */
 
 export interface Feed {
   _id: string;
   _rev?: string;
   url: string;
+  urlKey?: string;
   title: string;
   titleEn?: string;
   category: string;
@@ -17,31 +18,28 @@ export interface Feed {
   lastError: string;
   notify: boolean;
   createdAt: number;
-  titleLocked?: boolean; // 用户手动改过名，抓取不再覆盖
-  fullText?: boolean; // 摘要型源打开文章时自动抓取原文（PLAN-V1.3 A；undefined 按关）
-  order?: number; // 手动排序（D2；首次拖拽时批量赋值，此后新增源无 order 排末尾）
+  titleLocked?: boolean;
+  fullText?: boolean;
+  order?: number;
+  special?: "later";
 }
 
 export interface ArticleAi {
   summary: string;
   tags: string[];
   titleZh: string;
-  titleNorm: string; // AI 优化标题：冗长/含糊/标题党→清晰客观中文改写；原标题已清晰则空（v1.2 由"噱头客观化"放宽）
+  titleNorm: string;
   aiSource: "batch" | "enrich";
 }
 
-/** AI 段落翻译产物（v1.2）：纯文本，渲染层按 idx+head 对位插到正文段后（无 HTML） */
 export interface ArticleAiTrans {
   paras: { idx: number; head: string; text: string }[];
   at: number;
   model: string;
 }
 
-/** AI 目录产物（v1.4，PLAN-AI-TOC；PLAN-TOC-LEVEL 增 level）：纯数据，无 HTML；sections 与全文段落按 idx+head 对位（同 aiTrans 口径）。
- *  head 由 preload 从输入段落补全（AI 不回写）；level=目录层级（1=章 2=子章 2-3=前端 h3/h4，旧数据缺失按 1 平铺读）；
- *  正文 contentHash 变化 / itemfullx 全文替换连带失效（T-09 同族） */
 export interface ArticleAiToc {
-  sections: { title: string; idx: number; head: string; level?: 1 | 2 | 3 }[]; // title ≤24 字
+  sections: { title: string; idx: number; head: string; level?: 1 | 2 | 3 }[];
   at: number;
   model: string;
 }
@@ -49,11 +47,13 @@ export interface ArticleAiToc {
 export interface Item {
   _id: string;
   _rev?: string;
+  itemKey?: string;
   feedKey: string;
+  feedTitle?: string;
   guid: string;
   link: string;
   title: string;
-  titleDisplay: string; // 展示标题：AI 改写（titleNorm>titleZh）优先，无则等于 title
+  titleDisplay: string;
   author: string;
   pubTs: number;
   fetchedAt: number;
@@ -62,34 +62,42 @@ export interface Item {
   cover: string | null;
   read: boolean;
   starred: boolean;
+  readPos?: number;
   aiStatus: "none" | "done" | "error" | string;
-  ai?: ArticleAi; // 二期 AI 产物（schemaVersion 3；旧数据缺失按 undefined 读）
-  aiTrans?: ArticleAiTrans; // AI 段落翻译（v1.2；正文 contentHash 变化即随 ai 一并失效）
-  aiToc?: ArticleAiToc; // AI 目录（v1.4；失效联动同 aiTrans，前端提取目录不落库）
+  ai?: ArticleAi;
+  aiTrans?: ArticleAiTrans;
+  aiToc?: ArticleAiToc;
+  hasAiTrans?: boolean;
+  hasAiToc?: boolean;
+  fromStarSnap?: boolean;
+  fromLaterSnap?: boolean;
+  isLater?: boolean;
 }
 
 export type ThemeMode = "auto" | "light" | "dark";
-export type PaletteId = "warm" | "sepia" | "sage" | "indigo"; // 配色与明暗正交（PLAN-THEMES）
+export type PaletteId = "warm" | "sepia" | "sage" | "indigo";
 export type ViewMode = "card" | "list";
 export type OrderBy = "newest" | "oldest" | "unread";
+export type ReasoningEffort = "none" | "low" | "medium";
 
 export interface Settings {
   theme: ThemeMode;
-  palette: PaletteId; // 配色（默认 warm=暖米白现状；tokens.css data-palette 块）
+  palette: PaletteId;
   fontLevel: 0 | 1 | 2 | 3;
   viewMode: ViewMode;
   sidebarCollapsed: boolean;
   serif: boolean;
-  refreshMin: number; // 全局默认刷新间隔（分钟）
-  keepPerFeed: number; // 每源保留篇数
+  refreshMin: number;
+  keepPerFeed: number;
   notifyEnabled: boolean;
   orderBy: OrderBy;
-  aiEnabled: boolean; // AI 增强总开关（默认关，设置页显式开启；引擎配置在 preload airss.ai.getConfig）
-  aiTitle: boolean; // 显示 AI 优化标题（titleNorm>titleZh；关则一律原题）
-  aiAutoCount: 0 | 1 | 3 | 5; // 自动摘要范围（v1.2）：0=关闭自动(逐篇手动AI按钮) 1=仅当前 3/5=向下连续预取
-  muteWords: string[]; // 静音词（PLAN-V1.3 B；多词 OR 任一命中即从列表剔除，计数不剔除）
-  highlightWords: string[]; // 高亮词（B；与搜索词合并进 hlTerms，3 词上限由 highlightSegments 决定）
-  recommendEnabled: boolean; // 侧栏「订阅源」下方的推荐入口（v1.9；关闭即隐藏入口，推荐页仍可由空态进入）
+  aiEnabled: boolean;
+  aiTitle: boolean;
+  aiAutoCount: 0 | 1 | 3 | 5;
+  scheduleAiBatch: boolean;
+  muteWords: string[];
+  highlightWords: string[];
+  recommendEnabled: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -106,13 +114,12 @@ export const DEFAULT_SETTINGS: Settings = {
   aiEnabled: false,
   aiTitle: true,
   aiAutoCount: 0,
+  scheduleAiBatch: false,
   muteWords: [],
   highlightWords: [],
   recommendEnabled: true,
 };
 
-/** 发现管线的候选源；summaryOnly：发现期启发式判定该源只带摘要（true/false/null=无信号，驱动「抓取全文」智能默认）。
- *  externalLinks：聚合型源信号（条目 link 多数指向第三方站点），这类源抓不到全文，默认不预开。 */
 export interface FeedCandidate {
   url: string;
   title: string;
@@ -124,4 +131,35 @@ export interface FeedCandidate {
 export interface TriedPath {
   path: string;
   result: string;
+}
+
+export interface ScheduleStatus {
+  supported: boolean;
+  enabled: boolean;
+  schedule: {
+    code: string;
+    label: string;
+    trigger: number | { cron: string };
+    successCount: number;
+    failureCount: number;
+    lastExecuteAt?: number;
+    lastStatus?: "success" | "failure";
+  } | null;
+}
+
+export interface LocalStorageStats {
+  diskBytes: number;
+  diskMb: number;
+  files: number;
+  indexedDocs: number;
+  itemCount: number;
+}
+
+export interface LegacyDetectResult {
+  hasLegacy: boolean;
+  items: number;
+  fulls: number;
+  fullxs: number;
+  aiCache: number;
+  total: number;
 }

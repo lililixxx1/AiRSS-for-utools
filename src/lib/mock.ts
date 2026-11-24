@@ -13,13 +13,15 @@ interface MockDb {
   feeds: any[];
   items: any[];
   fulls: Record<string, string>;
-  fullxs: Record<string, string>; // 提取版全文（itemfullx 同形，PLAN-V1.3 A）
+  fullxs: Record<string, string>;
+  positions: Record<string, number>;
 }
 
 function load(): MockDb {
   try {
     const db = JSON.parse(localStorage.getItem(LS_KEY) || "") || seed();
-    if (!db.fullxs) db.fullxs = {}; // 旧 localStorage 种子迁移
+    if (!db.fullxs) db.fullxs = {};
+    if (!db.positions) db.positions = {};
     return db;
   } catch {
     return seed();
@@ -43,7 +45,7 @@ function seed(): MockDb {
     "itemfull:item:feed:mock-ruanyifeng:a1":
       "<p>这里记录每周值得分享的科技内容，周五发布。</p><p>本期话题：<strong>OpenClaw 2.0</strong> 正式发布，开源 Agent 生态迎来新的分水岭。</p><blockquote>开源不是许可证的选择，而是治理方式的选择。</blockquote><p>更多细节与讨论，见正文原文。</p>",
   };
-  const db = { feeds, items, fulls, fullxs: {} as Record<string, string> };
+  const db = { feeds, items, fulls, fullxs: {} as Record<string, string>, positions: {} as Record<string, number> };
   save(db);
   return db;
 }
@@ -51,20 +53,51 @@ function seed(): MockDb {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function installMock() {
-  const db = load();
+  load();
 
-  // mock AI 配置（内存态即可；真实环境存 preload 侧 dbStorage）
-  let mockAiCfg: { enabled: boolean; engine: "utools" | "byok"; model: string; modelLabel: string; byokBaseUrl: string; byokModel: string; byokAllowHttp: boolean } = {
+  const listeners = new Map<string, Set<(p: any) => void>>();
+  const on = (event: string, fn: (p: any) => void) => {
+    let set = listeners.get(event);
+    if (!set) {
+      set = new Set();
+      listeners.set(event, set);
+    }
+    set.add(fn);
+    return () => {
+      listeners.get(event)?.delete(fn);
+    };
+  };
+  const emit = (event: string, payload?: any) => {
+    for (const fn of [...(listeners.get(event) || [])]) {
+      try { fn(payload); } catch { /* noop */ }
+    }
+  };
+
+  let mockAiCfg: {
+    enabled: boolean;
+    engine: "utools" | "byok";
+    model: string;
+    modelLabel: string;
+    reasoningEffort: "none" | "low" | "medium";
+    byokBaseUrl: string;
+    byokModel: string;
+    byokAllowHttp: boolean;
+  } = {
     enabled: false,
     engine: "utools",
     model: "",
     modelLabel: "",
+    reasoningEffort: "none",
     byokBaseUrl: "",
     byokModel: "",
     byokAllowHttp: false,
   };
+  let mockByokKey = "";
+  let mockSchedule: any = null;
+  let mockFeatures = new Map<string, any>();
 
   window.airss = {
+    on,
     db: {
       async getFeeds() {
         return load().feeds;
@@ -75,6 +108,7 @@ export function installMock() {
         if (i >= 0) d.feeds[i] = doc;
         else d.feeds.push(doc);
         save(d);
+        emit("feeds-changed", { kind: "save", feed: doc });
         return doc;
       },
       async snapshotItems() {
@@ -84,7 +118,7 @@ export function installMock() {
         return load().items.filter((x) => x.feedKey === feedId);
       },
       async ingestFeed() {
-        return { ok: true, newCount: 0, updatedCount: 0, error: null };
+        return { ok: true, newCount: 0, updatedCount: 0, error: "" };
       },
       async setRead(id: string, read: boolean) {
         const d = load();
@@ -99,6 +133,14 @@ export function installMock() {
         if (it) it.starred = starred;
         save(d);
         return it;
+      },
+      async setReadPos(id: string, ratio: number) {
+        const d = load();
+        d.positions[id] = Math.max(0, Math.min(1, Number(ratio) || 0));
+        save(d);
+      },
+      async getReadPos(id: string) {
+        return load().positions[id] || 0;
       },
       async markManyRead(ids: string[]) {
         const d = load();
@@ -119,23 +161,35 @@ export function installMock() {
       async getItemFull(itemId: string) {
         return load().fulls["itemfull:" + itemId] || null;
       },
+      async getItemDetail(itemId: string) {
+        const d = load();
+        const it: any = d.items.find((x) => x._id === itemId) || null;
+        return {
+          item: it,
+          content: d.fulls["itemfull:" + itemId] || null,
+          fullxContent: d.fullxs["itemfullx:" + itemId] || null,
+          ai: it?.ai || null,
+          aiTrans: it?.aiTrans || null,
+          aiToc: it?.aiToc || null,
+          readPos: d.positions[itemId] || 0,
+        };
+      },
       async retentionClean() {
         return 0;
       },
       async deleteFeedCascade(feed: any) {
         const d = load();
+        const before = d.items.length;
         d.items = d.items.filter((x: any) => x.feedKey !== feed._id);
         d.feeds = d.feeds.filter((x: any) => x._id !== feed._id);
         save(d);
-        return 0;
+        return before - d.items.length;
       },
       async clearAll() {
-        save({ feeds: [], items: [], fulls: {}, fullxs: {} });
+        save({ feeds: [], items: [], fulls: {}, fullxs: {}, positions: {} });
         return 0;
       },
       async searchContent(query: string) {
-        // 浏览器 dev 同形简化：无预算截断/分片让出（真机行为见 preload/services/db.js）；
-        // 双前缀 + Set 去重与 preload 同口径（PLAN-V1.3 A）
         const terms = String(query || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
         if (!terms.length) return { ids: [], scanned: 0, truncated: false, ms: 0 };
         const t0 = Date.now();
@@ -159,14 +213,32 @@ export function installMock() {
         scan(d.fullxs, "itemfullx:");
         return { ids, scanned, truncated: false, ms: Date.now() - t0 };
       },
+      async rebuildSearchIndex() {
+        const stats = window.airss.db.getLocalStats();
+        return { count: stats.itemCount, stats };
+      },
+      async clearBodyCache() {
+        const d = load();
+        d.fulls = {};
+        d.fullxs = {};
+        save(d);
+        return window.airss.db.getLocalStats();
+      },
+      getLocalStats() {
+        const d = load();
+        return { diskBytes: 0, diskMb: 0, files: 0, indexedDocs: d.items.length, itemCount: d.items.length };
+      },
+      async detectLegacy() {
+        return { hasLegacy: false, items: 0, fulls: 0, fullxs: 0, aiCache: 0, total: 0 };
+      },
+      async cleanLegacySyncDocs() {
+        return { ok: true, removed: 0, error: "" };
+      },
     },
     feed: {
       async discover(url: string) {
         await sleep(600);
         return { found: true, candidates: [{ url, title: "Mock 源（浏览器模式）", itemCount: 12 }], tried: [{ path: "(直连)", result: "mock" }] };
-      },
-      async fetch() {
-        return { status: "ok", meta: { title: "", siteUrl: "", desc: "" }, items: [] };
       },
       normalizeUrl(u: string) {
         return /^https?:\/\//i.test(u) ? u : "https://" + u;
@@ -206,17 +278,95 @@ export function installMock() {
         return "";
       },
     },
-    scheduler: {
-      async refreshOne() {
-        await sleep(400);
-        return { ok: true, status: "ok", newCount: 0, error: null };
+    read: {
+      async getSnapshot() {
+        const d = load();
+        const items = [...d.items].sort((a, b) => b.pubTs - a.pubTs);
+        return {
+          feeds: d.feeds,
+          items,
+          stats: {
+            total: items.length,
+            unread: items.filter((x) => !x.read).length,
+            starred: items.filter((x) => x.starred).length,
+            later: items.filter((x) => x.feedKey === "feed:__later__").length,
+            laterUnread: items.filter((x) => x.feedKey === "feed:__later__" && !x.read).length,
+          },
+        };
       },
-      async refreshFeeds(_feeds: any[], hooks: any) {
-        await sleep(600);
-        if (hooks?.onAllDone) hooks.onAllDone({ total: 0, done: 0, ok: 0, failed: 0, skipped: 0, newItems: 0 });
-        return { total: 0, done: 0, ok: 0, failed: 0, skipped: 0, newItems: 0 };
+    },
+    refresh: {
+      async due() {
+        await sleep(300);
+        return { total: 0, done: 0, ok: 0, failed: 0, skipped: 0, newItems: 0, notifiedFeeds: 0 };
+      },
+      async one() {
+        await sleep(300);
+        return { ok: true, status: "ok", newCount: 0, error: "" };
       },
       abort() {},
+      isRefreshing() {
+        return false;
+      },
+    },
+    later: {
+      async saveUrl(url: string) {
+        const d = load();
+        const now = Date.now();
+        const id = "item:feed:__later__:" + now;
+        const item = {
+          _id: id,
+          feedKey: "feed:__later__",
+          feedTitle: "稍后读",
+          guid: url,
+          link: url,
+          title: url,
+          titleDisplay: url,
+          author: "",
+          pubTs: now,
+          fetchedAt: now,
+          contentHash: String(now),
+          summaryText: "模拟稍后读正文（浏览器 dev 模式）",
+          cover: null,
+          read: false,
+          starred: false,
+          aiStatus: "none",
+          isLater: true,
+        };
+        d.items.unshift(item);
+        d.fulls["itemfull:" + id] = `<p>模拟稍后读网页内容：${url}</p>`;
+        save(d);
+        emit("items-changed", { kind: "later" });
+        return { ok: true, item, error: null };
+      },
+    },
+    schedule: {
+      getStatus() {
+        return { supported: true, enabled: !!mockSchedule, schedule: mockSchedule };
+      },
+      async enable(cron = "*/30 * * * *") {
+        mockSchedule = { code: "airss-refresh", label: "AiRSS 定时刷新订阅", trigger: { cron }, successCount: 0, failureCount: 0 };
+        return { ok: true, rejected: false, error: "", status: window.airss.schedule.getStatus() };
+      },
+      disable() {
+        mockSchedule = null;
+        return { ok: true, status: window.airss.schedule.getStatus() };
+      },
+    },
+    features: {
+      isGlobalSearchEnabled() {
+        return mockFeatures.has("airss_search");
+      },
+      setGlobalSearchEnabled(enabled: boolean) {
+        if (enabled) mockFeatures.set("airss_search", { code: "airss_search" });
+        else mockFeatures.delete("airss_search");
+        return enabled;
+      },
+    },
+    lifecycle: {
+      consumePendingActions() {
+        return { actions: [], detached: false };
+      },
     },
     ai: {
       // 浏览器 dev 的模拟层：按真实管线节流吐字，供 UI 调流式/失败态；uTools 内走 preload/services/ai.js
@@ -304,7 +454,16 @@ export function installMock() {
       },
       abort() {},
       async getStatus() {
-        return { ready: false, engine: mockAiCfg.engine, models: [], byokReady: true, quota: { manual: 0, manualMax: 120, bg: 0, bgMax: 30 }, exempt: mockAiCfg.engine === "byok" };
+        return {
+          ready: false,
+          engine: mockAiCfg.engine,
+          models: [],
+          byokReady: true,
+          byokStorage: "crypto",
+          reasoningEffort: mockAiCfg.reasoningEffort,
+          quota: { manual: 0, manualMax: 120, bg: 0, bgMax: 30 },
+          exempt: mockAiCfg.engine === "byok",
+        };
       },
       getConfig() {
         return { ...mockAiCfg };
@@ -313,12 +472,15 @@ export function installMock() {
         mockAiCfg = { ...mockAiCfg, ...patch };
         return { ...mockAiCfg };
       },
-      // 浏览器 dev 无 dbCryptoStorage 概念，恒报成功（与 preload 返回 {ok} 同形）
-      setByokKey() {
-        return { ok: true };
+      setByokKey(key: string) {
+        mockByokKey = String(key || "");
+        return { ok: true, storage: "crypto" };
       },
       hasByokKey() {
-        return false;
+        return !!mockByokKey;
+      },
+      getByokStorageMode() {
+        return "crypto" as const;
       },
     },
     log: (() => {
@@ -349,16 +511,41 @@ export function installMock() {
     })(),
 
     sys: {
-      readTextFile() {
-        return "";
+      pickOpmlText() {
+        return { picked: false, text: "" };
       },
-      writeTextFile() {},
+      saveOpmlWithDialog() {
+        return { saved: true };
+      },
+      exportLogsWithDialog() {
+        return { saved: true };
+      },
       openExternal(url: string) {
         window.open(url, "_blank");
+        return true;
       },
-      async createFeed(data: any) {
+      async createFeed(data: { url: string; title?: string; category?: string; fullText?: boolean; refreshMin?: number; siteUrl?: string; desc?: string }) {
         const d = load();
-        const doc = { _id: "feed:mock-" + Date.now(), url: data.url, title: data.title || data.url, titleEn: "", category: data.category || "默认", siteUrl: data.siteUrl || "", desc: data.desc || "", ...(data.fullText ? { fullText: true } : {}), etag: "", lastModified: "", lastFetchedAt: Date.now(), refreshMin: data.refreshMin || 0, unreadCount: 0, lastError: "", notify: true, createdAt: Date.now() };
+        const urlKey = String(data.url || "").trim().toLowerCase().replace(/^https?:\/\/(www\.)?/, "").replace(/\/+$/, "");
+        const doc = {
+          _id: "feed:mock-" + Date.now(),
+          url: data.url,
+          urlKey,
+          title: data.title || data.url,
+          titleEn: "",
+          category: data.category || "默认",
+          siteUrl: data.siteUrl || "",
+          desc: data.desc || "",
+          ...(data.fullText ? { fullText: true } : {}),
+          etag: "",
+          lastModified: "",
+          lastFetchedAt: Date.now() as any,
+          refreshMin: Number(data.refreshMin || 0),
+          unreadCount: 0,
+          lastError: "",
+          notify: true,
+          createdAt: Date.now(),
+        };
         d.feeds.push(doc);
         save(d);
         return doc;
@@ -370,6 +557,9 @@ export function installMock() {
   const lsKey = (k: string) => "airss-mock-kv:" + k;
   const kv: Record<string, any> = {};
   window.utools = {
+    onPluginReady(cb: any) {
+      setTimeout(() => cb?.(), 10);
+    },
     onPluginEnter(cb: any) {
       (window as any).__mockEnter = cb;
     },
@@ -377,6 +567,36 @@ export function installMock() {
     onMainPush() {},
     onPluginDetach() {},
     onDbPull() {},
+    onScheduleTrigger() {},
+    async requestSchedule(opts: any) {
+      mockSchedule = { ...opts, successCount: 0, failureCount: 0 };
+      return true;
+    },
+    getSchedules() {
+      return mockSchedule ? [mockSchedule] : [];
+    },
+    removeSchedule() {
+      mockSchedule = null;
+    },
+    getFeatures(codes?: string[]) {
+      const all = [...mockFeatures.values()];
+      return codes?.length ? all.filter((f) => codes.includes(f.code)) : all;
+    },
+    setFeature(f: any) {
+      if (f?.code) mockFeatures.set(f.code, f);
+    },
+    removeFeature(code: string) {
+      mockFeatures.delete(code);
+    },
+    getPluginLocalDataPath() {
+      return "/mock/local";
+    },
+    getPluginTempPath() {
+      return "/mock/temp";
+    },
+    hideMainWindow() {
+      return true;
+    },
     setSubInput() {
       return true;
     },
@@ -403,10 +623,10 @@ export function installMock() {
       window.open(url, "_blank");
     },
     showOpenDialog() {
-      return null;
+      return undefined;
     },
     showSaveDialog() {
-      return null;
+      return undefined;
     },
     isDarkColors() {
       return window.matchMedia("(prefers-color-scheme: dark)").matches;

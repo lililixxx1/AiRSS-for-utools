@@ -20,6 +20,7 @@ const viewTitle = computed(() => {
   if (f.kind === "all") return "所有文章";
   if (f.kind === "unread") return "未读";
   if (f.kind === "starred") return "收藏";
+  if (f.kind === "later") return "稍后读";
   if (f.kind === "feed") return data.feedMap.get(f.value!)?.title || "订阅源";
   if (f.kind === "tag") return "#" + (f.value || "");
   return f.value || "分类";
@@ -109,10 +110,9 @@ const emptyKind = computed<null | "first-run" | "no-result" | "all-empty" | "cat
         <span class="tb-progress num" v-if="data.refreshing && data.progress.total">{{ data.progress.done }}/{{ data.progress.total }}</span>
       </div>
       <div class="tb-right">
-        <!-- 搜索态：结果计数 / 正文扫描中 / 预算截断提示（title 悬浮给全文说明） -->
+        <!-- 搜索态：结果计数 / 正文检索中（MiniSearch 本地倒排索引毫秒级响应） -->
         <span v-if="data.search.trim() && !data.searchScanning" class="tb-progress num">{{ items.length }} 个结果</span>
         <span v-if="data.searchScanning" class="tb-progress num">正文中检索…</span>
-        <span v-else-if="data.searchTruncated && data.search.trim()" class="tb-progress num" :title="`内容较多，仅扫描了前 ${data.searchScanned} 篇正文`">部分扫描</span>
         <!-- 静音透视（PLAN-V1.3 B）：被静音篇数可暂停查看；计数不受静音影响 -->
         <button
           v-if="data.mutedInView > 0"

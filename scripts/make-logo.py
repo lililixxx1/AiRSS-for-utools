@@ -45,6 +45,6 @@ d.arc([arc_cx - 34, arc_cy - 34, arc_cx + 34, arc_cy + 34], start=180, end=270, 
 d.arc([arc_cx - 58, arc_cy - 58, arc_cx + 58, arc_cy + 58], start=190, end=262, fill=ORANGE_DEEP, width=9)
 d.ellipse([arc_cx - 9, arc_cy - 9, arc_cx + 9, arc_cy + 9], fill=WHITE)
 
-out = os.path.join(ROOT, "logo.png")
+out = os.path.join(ROOT, "public", "logo.png")
 img.save(out)
 print("written:", out)

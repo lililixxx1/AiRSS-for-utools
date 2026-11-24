@@ -263,72 +263,109 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
       ok("绝对化后的 https 图存活", clean.includes("https://ex.base/rel/pic.jpg"));
     }
 
-    // ---- 真实网络：阮一峰 atom（gzip 解压 + ETag 头）----
-    console.log("[http] 真实抓取");
-    const res = await nodeFetch("https://www.ruanyifeng.com/blog/atom.xml", { timeout: 15000 });
-    ok("HTTP 200", res.ok && res.status === 200);
-    const xml2 = decodeBuffer(res.body, res.headers["content-type"]);
-    ok("gzip 解压后为 XML", looksLikeFeedXml(xml2));
-    const real = await parseFeedXml(xml2);
-    ok("解析出条目（" + real.items.length + " 篇）", real.items.length > 0);
-    console.log("  · " + real.meta.title + " | " + real.items[0].title.slice(0, 30) + "…");
+    // ---- 真实网络：阮一峰 atom（--offline 模式跳过外部联网，回环服务仍在下方实测）----
+    if (!process.argv.includes("--offline")) {
+      console.log("[http] 真实抓取");
+      const res = await nodeFetch("https://www.ruanyifeng.com/blog/atom.xml", { timeout: 15000 });
+      ok("HTTP 200", res.ok && res.status === 200);
+      const xml2 = decodeBuffer(res.body, res.headers["content-type"]);
+      ok("gzip 解压后为 XML", looksLikeFeedXml(xml2));
+      const real = await parseFeedXml(xml2);
+      ok("解析出条目（" + real.items.length + " 篇）", real.items.length > 0);
+      console.log("  · " + real.meta.title + " | " + real.items[0].title.slice(0, 30) + "…");
+    } else {
+      console.log("[http] --offline：跳过外网抓取，下文使用本地回环 HTTP 实测");
+    }
 
-    // ---- 发现管线：复用首抓 body（F2）/ 页面相对候选 / 不可达声明并发回退（2026-10 优化）----
-    console.log("[discover] 二次抓取复用 + 页面相对候选（本地 server）");
+    // ---- 发现管线：复用首抓 body（F2）/ 页面相对候选 / 不可达声明并发回退 ----
+    console.log("[discover] 二次抓取复用 + 页面相对候选" + (process.argv.includes("--offline") ? "（离线模拟）" : "（本地 server）"));
     {
-      const http = require("http");
       const RSS = '<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0"><channel><title>发现复用测试源</title><link>http://127.0.0.1/x</link>' +
         '<item><title>条目一</title><link>http://127.0.0.1/x/a</link><description>凑一点正文字数的内容。</description></item></channel></rss>';
       let hits = 0;
-      const server = http.createServer((req, res) => {
-        if (req.url === "/") {
+      const offline = process.argv.includes("--offline");
+      const feedMod = require(path.join(PRELOAD, "services/feed.js"));
+      const origNodeFetch = feedMod.__test.ctx.nodeFetch;
+      let server = null;
+      let base = "http://127.0.0.1:18080/";
+
+      const dispatchMock = async (targetUrl, opts = {}) => {
+        const u = new URL(targetUrl);
+        if (u.pathname === "/") {
           hits += 1;
-          res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-          res.end('<html><head><title>首页</title><link rel="alternate" type="application/rss+xml" href="/feed.xml" title="RSS"></head><body>标记文本 MARKER-REDISCOVER</body></html>');
-        } else if (req.url === "/feed.xml") {
-          res.writeHead(200, { "content-type": "application/rss+xml; charset=utf-8" });
-          res.end(RSS);
-        } else if (req.url === "/redir") {
-          res.writeHead(302, { location: "/blog/" });
-          res.end();
-        } else if (req.url === "/blog/") {
-          res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-          res.end('<html><head><title>blog</title><link rel="alternate" type="application/rss+xml" href="/missing.xml" title="RSS"></head><body>BLOG</body></html>');
-        } else if (req.url === "/blog/atom.xml") {
-          res.writeHead(200, { "content-type": "application/rss+xml; charset=utf-8" });
-          res.end(RSS);
-        } else if (req.url === "/nod/") {
-          res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-          res.end('<html><head><title>nod</title></head><body>NOD</body></html>');
-        } else if (req.url === "/nod/atom.xml") {
-          res.writeHead(200, { "content-type": "application/rss+xml; charset=utf-8" });
-          res.end(RSS);
-        } else if (req.url === "/slow/") {
-          res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-          res.end('<html><head><title>slow</title><link rel="alternate" type="application/rss+xml" href="/slow-feed.xml" title="RSS"></head><body>SLOW</body></html>');
-        } else if (req.url === "/slow/atom.xml") {
-          res.writeHead(200, { "content-type": "application/rss+xml; charset=utf-8" });
-          res.end(RSS);
-        } else if (req.url === "/slow-feed.xml") {
-          /* 故意不响应：模拟 feedburner 类不可达声明源，验证本地候选并行胜出 */
-        } else if (req.url === "/prio/") {
-          res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-          res.end('<html><head><title>prio</title><link rel="alternate" type="application/rss+xml" href="/prio-feed.xml" title="RSS"></head><body>PRIO</body></html>');
-        } else if (req.url === "/prio-feed.xml") {
-          res.writeHead(200, { "content-type": "application/rss+xml; charset=utf-8" });
-          res.end(RSS);
-        } else if (req.url === "/prio/atom.xml") {
-          setTimeout(() => {
+          return { ok: true, url: targetUrl, status: 200, headers: { "content-type": "text/html; charset=utf-8" }, body: Buffer.from('<html><head><title>首页</title><link rel="alternate" type="application/rss+xml" href="/feed.xml" title="RSS"></head><body>标记文本 MARKER-REDISCOVER</body></html>'), truncated: false, error: null };
+        }
+        if (u.pathname === "/feed.xml" || u.pathname === "/blog/atom.xml" || u.pathname === "/nod/atom.xml" || u.pathname === "/slow/atom.xml" || u.pathname === "/prio-feed.xml") {
+          return { ok: true, url: targetUrl, status: 200, headers: { "content-type": "application/rss+xml; charset=utf-8" }, body: Buffer.from(RSS), truncated: false, error: null };
+        }
+        if (u.pathname === "/redir") {
+          return { ok: true, url: base + "blog/", status: 200, headers: { "content-type": "text/html; charset=utf-8" }, body: Buffer.from('<html><head><title>blog</title><link rel="alternate" type="application/rss+xml" href="/missing.xml" title="RSS"></head><body>BLOG</body></html>'), truncated: false, error: null };
+        }
+        if (u.pathname === "/blog/") {
+          return { ok: true, url: targetUrl, status: 200, headers: { "content-type": "text/html; charset=utf-8" }, body: Buffer.from('<html><head><title>blog</title><link rel="alternate" type="application/rss+xml" href="/missing.xml" title="RSS"></head><body>BLOG</body></html>'), truncated: false, error: null };
+        }
+        if (u.pathname === "/nod/") {
+          return { ok: true, url: targetUrl, status: 200, headers: { "content-type": "text/html; charset=utf-8" }, body: Buffer.from('<html><head><title>nod</title></head><body>NOD</body></html>'), truncated: false, error: null };
+        }
+        if (u.pathname === "/slow/") {
+          return { ok: true, url: targetUrl, status: 200, headers: { "content-type": "text/html; charset=utf-8" }, body: Buffer.from('<html><head><title>slow</title><link rel="alternate" type="application/rss+xml" href="/slow-feed.xml" title="RSS"></head><body>SLOW</body></html>'), truncated: false, error: null };
+        }
+        if (u.pathname === "/slow-feed.xml") {
+          await new Promise((r) => setTimeout(r, opts.timeout || 2500));
+          return { ok: false, url: targetUrl, status: 0, headers: {}, body: null, truncated: false, error: "TIMEOUT" };
+        }
+        if (u.pathname === "/prio/") {
+          return { ok: true, url: targetUrl, status: 200, headers: { "content-type": "text/html; charset=utf-8" }, body: Buffer.from('<html><head><title>prio</title><link rel="alternate" type="application/rss+xml" href="/prio-feed.xml" title="RSS"></head><body>PRIO</body></html>'), truncated: false, error: null };
+        }
+        if (u.pathname === "/prio/atom.xml") {
+          await new Promise((r) => setTimeout(r, 800));
+          return { ok: true, url: targetUrl, status: 200, headers: { "content-type": "application/rss+xml; charset=utf-8" }, body: Buffer.from(RSS), truncated: false, error: null };
+        }
+        return { ok: false, url: targetUrl, status: 404, headers: {}, body: null, truncated: false, error: "HTTP_404" };
+      };
+
+      if (offline) {
+        feedMod.__test.ctx.nodeFetch = dispatchMock;
+      } else {
+        const http = require("http");
+        server = http.createServer((req, res) => {
+          if (req.url === "/") {
+            hits += 1;
+            res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+            res.end('<html><head><title>首页</title><link rel="alternate" type="application/rss+xml" href="/feed.xml" title="RSS"></head><body>标记文本 MARKER-REDISCOVER</body></html>');
+          } else if (req.url === "/feed.xml" || req.url === "/blog/atom.xml" || req.url === "/nod/atom.xml" || req.url === "/slow/atom.xml" || req.url === "/prio-feed.xml") {
             res.writeHead(200, { "content-type": "application/rss+xml; charset=utf-8" });
             res.end(RSS);
-          }, 800); // 慢于声明源：验证声明优先窗口
-        } else {
-          res.writeHead(404);
-          res.end();
-        }
-      });
-      await new Promise((r) => server.listen(0, "127.0.0.1", r));
-      const base = "http://127.0.0.1:" + server.address().port + "/";
+          } else if (req.url === "/redir") {
+            res.writeHead(302, { location: "/blog/" });
+            res.end();
+          } else if (req.url === "/blog/") {
+            res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+            res.end('<html><head><title>blog</title><link rel="alternate" type="application/rss+xml" href="/missing.xml" title="RSS"></head><body>BLOG</body></html>');
+          } else if (req.url === "/nod/") {
+            res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+            res.end('<html><head><title>nod</title></head><body>NOD</body></html>');
+          } else if (req.url === "/slow/") {
+            res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+            res.end('<html><head><title>slow</title><link rel="alternate" type="application/rss+xml" href="/slow-feed.xml" title="RSS"></head><body>SLOW</body></html>');
+          } else if (req.url === "/slow-feed.xml") {
+            /* 模拟挂起 */
+          } else if (req.url === "/prio/") {
+            res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+            res.end('<html><head><title>prio</title><link rel="alternate" type="application/rss+xml" href="/prio-feed.xml" title="RSS"></head><body>PRIO</body></html>');
+          } else if (req.url === "/prio/atom.xml") {
+            setTimeout(() => {
+              res.writeHead(200, { "content-type": "application/rss+xml; charset=utf-8" });
+              res.end(RSS);
+            }, 800);
+          } else {
+            res.writeHead(404);
+            res.end();
+          }
+        });
+        await new Promise((r) => server.listen(0, "127.0.0.1", r));
+        base = "http://127.0.0.1:" + server.address().port + "/";
+      }
       try {
         const direct = await fetchFeed(base, { timeout: 5000 });
         ok("fetchFeed(HTML) 判非 feed 且保留 body", direct.status === "error" && direct.error === "NOT_FEED_XML" && /MARKER-REDISCOVER/.test(direct.html || ""));
@@ -356,8 +393,11 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
         const prio = await discoverFeed(base + "prio/");
         ok("声明源可达时优先于页面相对候选", prio.found === true && prio.candidates[0].url === base + "prio-feed.xml");
       } finally {
-        server.closeAllConnections(); // keep-alive 空闲连接会拖住事件循环（smoke 成功路径无 exit(0)）
-        server.close();
+        feedMod.__test.ctx.nodeFetch = origNodeFetch;
+        if (server) {
+          server.closeAllConnections();
+          server.close();
+        }
       }
     }
 
