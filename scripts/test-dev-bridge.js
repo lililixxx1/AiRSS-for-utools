@@ -221,6 +221,7 @@ async function createClient() {
       width: 1080,
       height: 680,
       show: false,
+      serveHttp: false,
       enter: { code: "airss", type: "text", payload: "", from: "main" },
     });
     const evalRes = await mcp.call("dev_ui_eval", {

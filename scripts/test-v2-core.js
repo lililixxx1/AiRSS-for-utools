@@ -458,6 +458,97 @@ const ok = (name, cond) => {
       }
     }
 
+    console.log("[v2] 9. 清缓存保护(稍后读+收藏) + 刷新自愈不抹 AI + 惰性异步索引 + ingestFeed 边界消毒");
+    {
+      const env = resetEnv();
+      await storage.init();
+
+      const healUrl = "https://heal.example/feed.xml";
+      const healRss = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Heal Feed</title><link>https://heal.example/</link><item><title>普通待自愈文章</title><guid>h-norm</guid><link>https://heal.example/norm</link><content:encoded><![CDATA[<p>这是包含 自愈关键字 的完整正文段落。</p>]]></content:encoded></item><item><title>收藏受保护文章</title><guid>h-star</guid><link>https://heal.example/star</link><content:encoded><![CDATA[<p>收藏文章受保护正文内容。</p>]]></content:encoded></item></channel></rss>`;
+      const parsedInit = await feedSvc.parseFeedXml(healRss, healUrl);
+      const feed = { _id: "feed:heal", url: healUrl, title: "Heal Feed", notify: false, createdAt: 100 };
+      await storage.saveFeed(feed);
+      await storage.ingestFeed(feed, parsedInit.items, { etag: "etag-old", lastModified: "Mon, 01 Jan 2026 00:00:00 GMT" });
+
+      const feedItems = await storage.itemsOfFeed("feed:heal");
+      const normItem = feedItems.find((x) => x.guid === "h-norm");
+      const starItem = feedItems.find((x) => x.guid === "h-star");
+      await storage.setStarred(starItem._id, true);
+      await storage.saveItemAi(normItem._id, {
+        aiStatus: "done",
+        titleDisplay: "AI优化后自愈标题",
+        ai: { summary: "保留中的AI摘要", tags: ["自愈标签"], titleZh: "", titleNorm: "AI优化后自愈标题", aiSource: "enrich" },
+        aiTrans: { paras: [{ idx: 0, head: "H", text: "旧译文" }], at: 1, model: "m" },
+        aiToc: { sections: [{ title: "目录1", idx: 0, head: "H", level: 1 }], at: 1, model: "m" },
+      });
+      const laterDoc = await storage.saveLaterArticle({
+        url: "https://later-protect.example/post",
+        link: "https://later-protect.example/post",
+        title: "受保护稍后读文章",
+        contentHtml: "<p>稍后读受保护正文内容</p>",
+        summaryText: "稍后读摘要",
+      });
+
+      const statsAfterClear = await storage.clearBodyCache();
+      ok("clearBodyCache 清空普通文章正文", (await storage.getItemFull(normItem._id)) === null && statsAfterClear.files >= 1);
+      const normAfterClear = await storage.getItemDetail(normItem._id);
+      ok("clearBodyCache 仅清失效译文/目录而保留 AI 摘要与优化标题", !normAfterClear.aiTrans && !normAfterClear.aiToc && normAfterClear.item.hasAiTrans === false && normAfterClear.ai?.summary === "保留中的AI摘要" && normAfterClear.item.titleDisplay === "AI优化后自愈标题");
+      ok("clearBodyCache 保留已收藏文章正文", (await storage.getItemFull(starItem._id))?.includes("收藏文章受保护正文内容"));
+      ok("clearBodyCache 保留稍后读文章正文", (await storage.getItemFull(laterDoc._id))?.includes("稍后读受保护正文内容"));
+      const feedAfterClear = await storage.getFeed("feed:heal");
+      ok("clearBodyCache 清空源传输态以解开刷新两道门", feedAfterClear.etag === "" && feedAfterClear.lastModified === "" && feedAfterClear.lastFetchedAt === null);
+
+      let sawConditionalHeader = false;
+      const origFeedFetch = feedSvc.__test.ctx.nodeFetch;
+      feedSvc.__test.ctx.nodeFetch = async (_u, opts) => {
+        if (opts && opts.headers && (opts.headers["If-None-Match"] || opts.headers["If-Modified-Since"])) {
+          sawConditionalHeader = true;
+        }
+        return {
+          ok: true,
+          url: healUrl,
+          status: 200,
+          headers: { "content-type": "application/rss+xml; charset=utf-8" },
+          body: Buffer.from(healRss),
+          truncated: false,
+          error: null,
+        };
+      };
+      try {
+        await refreshService.refreshDue({ manual: false, trigger: "enter" });
+      } finally {
+        feedSvc.__test.ctx.nodeFetch = origFeedFetch;
+      }
+      ok("清缓存后自动触发无条件刷新（不带旧 ETag）", !sawConditionalHeader);
+      ok("生产刷新链路自动补回普通文章缺失正文", (await storage.getItemFull(normItem._id))?.includes("自愈关键字"));
+      const normAfterHeal = await storage.getItemDetail(normItem._id);
+      ok("正文自愈早退不抹除 AI 优化标题与摘要", normAfterHeal.item.titleDisplay === "AI优化后自愈标题" && normAfterHeal.ai?.summary === "保留中的AI摘要");
+
+      // 惰性异步索引：重初始化冷启动不加载，mainPush 内存兜底，检索时 async 加载并同步状态位
+      storage.flush();
+      storage.resetForTest();
+      await storage.init();
+      ok("storage.init 冷启动不阻塞加载索引（isReady=false）", searchIndex.isReady() === false);
+      const quickPush = readService.searchForMainPushSync("AI优化后自愈标题", 5);
+      ok("未加载索引前 mainPush 内存快搜即刻命中", quickPush.some((h) => h._id === normItem._id));
+      const asyncSearchRes = await storage.searchContent("自愈关键字");
+      ok("首次异步搜索触发 loadJSAsync 并命中补回正文", searchIndex.isReady() === true && asyncSearchRes.ids.includes(normItem._id));
+      await storage.rebuildSearchIndex();
+      ok("rebuildSearchIndex 后状态为 ready", searchIndex.isReady() === true);
+      searchIndex.resetForTest();
+      ok("resetForTest 后状态归位 unloaded", searchIndex.isReady() === false);
+
+      // preload/index.js ingestFeed 边界消毒
+      const airssApi = require(path.join(PRELOAD, "index.js"));
+      await airssApi.db.ingestFeed(
+        feed,
+        [{ guid: "xss-boundary", link: "https://heal.example/xss", title: "XSS测试", contentHtml: '<p>安全段落</p><script>alert(1)</script><img src="http://evil/x.png" onerror="bad()">', contentHash: "hxss", summaryText: "xss", pubTs: Date.now() }],
+        {}
+      );
+      const xssBody = await storage.getItemFull("item:feed:heal:" + require("crypto").createHash("sha256").update("xss-boundary").digest("hex").slice(0, 12));
+      ok("window.airss.db.ingestFeed 入口剥除未消毒 script 与 onerror", !!xssBody && xssBody.includes("安全段落") && !/<script/i.test(xssBody) && !/onerror=/i.test(xssBody));
+    }
+
     console.log("\n全部通过：" + pass + " 项（v2.1 核心架构与 uTools 8.0 特性）");
   } finally {
     storage.resetForTest();

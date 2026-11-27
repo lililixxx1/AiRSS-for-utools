@@ -57,6 +57,8 @@ declare module "minisearch" {
     search(query: string, options?: any): any[];
     toJSON(): any;
     static loadJSON(json: string, options?: any): MiniSearch<any>;
+    static loadJS(js: any, options?: any): MiniSearch<any>;
+    static loadJSAsync(js: any, options?: any): Promise<MiniSearch<any>>;
   }
   export = MiniSearch;
 }

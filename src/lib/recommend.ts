@@ -10,8 +10,10 @@
 export interface RecommendSource {
   /** 展示名（用户添加后仍可在确认步改名） */
   title: string;
-  /** 订阅地址（站点首页亦可：发现管线会自动探测 feed） */
+  /** 订阅地址（实测直连 Feed 或可发现地址） */
   url: string;
+  /** 历史域名或站点首页等等价别名，用于已订阅判重兼容 */
+  aliases?: string[];
   /** 一句话介绍，回答「这个源值不值得订」 */
   desc: string;
 }
@@ -26,8 +28,22 @@ export const RECOMMEND_GROUPS: RecommendGroup[] = [
     name: "精品聚合",
     items: [
       { title: "橘鸦AI早报", url: "https://daily.juya.uk/rss.xml", desc: "每天一份 AI 圈要闻早餐，5 分钟看完当天重点。" },
-      { title: "Indie Radar", url: "https://radar.everythingisok.top/", desc: "出海与独立开发情报站，每日精选新工具、开源项目与变现案例。" },
-      { title: "AIGC NEWS", url: "https://aigcnews.cn/", desc: "AI 资讯聚合：论文、GitHub、Product Hunt、HN 与科技媒体的中文简报。" },
+      {
+        title: "Indie Radar",
+        url: "https://indieradar.cc/feed.xml",
+        aliases: [
+          "https://indieradar.cc/",
+          "https://radar.everythingisok.top/",
+          "https://radar.everythingisok.top/feed.xml",
+        ],
+        desc: "出海与独立开发情报站，每日精选新工具、开源项目与变现案例。",
+      },
+      {
+        title: "AIGC NEWS",
+        url: "https://aigcnews.cn/api/feed.xml",
+        aliases: ["https://aigcnews.cn/"],
+        desc: "AI 资讯聚合：论文、GitHub、Product Hunt、HN 与科技媒体的中文简报。",
+      },
       { title: "HelloGitHub 月刊", url: "https://hellogithub.com/rss", desc: "每月一期，精选有趣、入门级的开源项目，附仓库链接与星标。" },
     ],
   },
@@ -68,9 +84,30 @@ export function feedUrlKey(url: string): string {
   return s;
 }
 
-/** 该推荐源是否已在订阅列表里（按 feedUrlKey 归一比对） */
-export function isSubscribed(url: string, feeds: { url?: string }[]): boolean {
-  const key = feedUrlKey(url);
-  if (!key) return false;
-  return feeds.some((f) => feedUrlKey(f.url || "") === key);
+function sourceUrlKeys(sourceOrUrl: string | { url: string; aliases?: string[] }): Set<string> {
+  const candidates =
+    typeof sourceOrUrl === "string"
+      ? [sourceOrUrl]
+      : [sourceOrUrl.url, ...(sourceOrUrl.aliases || [])];
+  const keys = new Set<string>();
+  for (const u of candidates) {
+    const k = feedUrlKey(u);
+    if (k) keys.add(k);
+  }
+  return keys;
+}
+
+/** 在已订阅列表里查找与推荐源（含兼容别名）匹配的订阅条目 */
+export function findSubscribedFeed<T extends { url?: string }>(
+  sourceOrUrl: string | { url: string; aliases?: string[] },
+  feeds: T[]
+): T | null {
+  const keys = sourceUrlKeys(sourceOrUrl);
+  if (!keys.size) return null;
+  return feeds.find((f) => keys.has(feedUrlKey(f.url || ""))) || null;
+}
+
+/** 该推荐源是否已在订阅列表里（按 feedUrlKey 及 aliases 归一比对） */
+export function isSubscribed(sourceOrUrl: string | { url: string; aliases?: string[] }, feeds: { url?: string }[]): boolean {
+  return !!findSubscribedFeed(sourceOrUrl, feeds);
 }

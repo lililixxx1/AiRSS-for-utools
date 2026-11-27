@@ -72,6 +72,7 @@ export const useDataStore = defineStore("data", () => {
   const aiBusy = ref(new Set<string>());
   const opmlImporting = ref<null | { done: number; total: number }>(null);
   const mutePaused = ref(false);
+  const laterBusy = ref(false);
 
   const regularFeeds = computed(() => feeds.value.filter((f) => f.special !== "later" && f._id !== "feed:__later__"));
 
@@ -514,6 +515,32 @@ export const useDataStore = defineStore("data", () => {
     }
   }
 
+  async function saveLater(rawUrl: string): Promise<boolean> {
+    const ui = useUiStore();
+    const url = rawUrl.trim();
+    if (!url || laterBusy.value) return false;
+    laterBusy.value = true;
+    try {
+      const r = await window.airss.later.saveUrl(url);
+      if (r?.ok) {
+        await loadAll();
+        ui.toast(`已存入稍后读：${r.item?.title || url}`);
+        return true;
+      }
+      const msg =
+        r?.error === "INVALID_URL"
+          ? "请输入有效的 http(s) 网页链接"
+          : `存入稍后读失败：${r?.error || "SAVE_FAILED"}`;
+      ui.toast(msg, "error");
+      return false;
+    } catch (e: any) {
+      ui.toast("存入稍后读失败：" + String(e?.message || e), "error");
+      return false;
+    } finally {
+      laterBusy.value = false;
+    }
+  }
+
   async function clearAllData() {
     const ui = useUiStore();
     await window.airss.db.clearAll();
@@ -540,6 +567,7 @@ export const useDataStore = defineStore("data", () => {
     aiBusy,
     opmlImporting,
     mutePaused,
+    laterBusy,
     feedMap,
     categories,
     stats,
@@ -563,6 +591,7 @@ export const useDataStore = defineStore("data", () => {
     retryFeed,
     importOpml,
     exportOpml,
+    saveLater,
     clearAllData,
     replaceItemInPlace,
   };

@@ -53,6 +53,24 @@ async function createFeed({ url, title, category, fullText, refreshMin, siteUrl,
   return doc;
 }
 
+/**
+ * 渲染层边界消毒封装：防止未消毒的 contentHtml 直接写入本地正文并进入 v-html
+ * （内部 scheduler.js 仍直调 storage.ingestFeed，不重复消毒）
+ * @param {any} feedDoc
+ * @param {any[]} parsedItems
+ * @param {any} [feedMeta]
+ */
+function ingestFeedSafe(feedDoc, parsedItems, feedMeta = {}) {
+  const safeItems = Array.isArray(parsedItems)
+    ? parsedItems.map((it) =>
+        it && typeof it === "object" && it.contentHtml
+          ? { ...it, contentHtml: articleSvc.sanitizeContent(it.contentHtml) }
+          : it
+      )
+    : [];
+  return dbSvc.ingestFeed(feedDoc, safeItems, feedMeta);
+}
+
 const airss = {
   // ---- 事件订阅（preload -> renderer 增量同步）----
   on: events.on,
@@ -63,7 +81,7 @@ const airss = {
     saveFeed: dbSvc.saveFeed,
     snapshotItems: dbSvc.snapshotItems,
     itemsOfFeed: dbSvc.itemsOfFeed,
-    ingestFeed: dbSvc.ingestFeed,
+    ingestFeed: ingestFeedSafe,
     setRead: dbSvc.setRead,
     setStarred: dbSvc.setStarred,
     setReadPos: dbSvc.setReadPos,

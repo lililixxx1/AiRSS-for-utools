@@ -145,12 +145,24 @@ async function rebuildIndex() {
   }
 }
 
+function askClearCache() {
+  if (indexBusy.value) return;
+  ui.modal = {
+    type: "confirm",
+    title: "清理正文缓存？",
+    body: "将删除普通订阅文章的本地正文与已提取全文缓存，并清空刷新缓存态。订阅配置、已读/收藏状态、已收藏正文与稍后读正文会保留；仅各源最新 RSS 仍包含且自带正文的条目会在下次刷新时重新下载，更早的旧文章和已提取全文需逐篇重新打开抓取。",
+    danger: true,
+    okLabel: "确认清理",
+    onOk: () => void clearCache(),
+  };
+}
+
 async function clearCache() {
   if (indexBusy.value) return;
   indexBusy.value = true;
   try {
     localStats.value = await window.airss.db.clearBodyCache();
-    ui.toast("已清理正文缓存（订阅与收藏已保留）");
+    ui.toast("已清理普通订阅正文缓存（已保留收藏与稍后读正文）");
   } catch (e: any) {
     ui.toast("清理缓存失败：" + String(e?.message || e), "error");
   } finally {
@@ -610,7 +622,7 @@ function openRepo() {
           </div>
           <div class="st-actions">
             <button class="btn btn-secondary btn-sm" :disabled="indexBusy" @click="rebuildIndex">重建搜索索引</button>
-            <button class="btn btn-secondary btn-sm" :disabled="indexBusy" @click="clearCache">清理正文缓存</button>
+            <button class="btn btn-secondary btn-sm" :disabled="indexBusy" @click="askClearCache">清理正文缓存</button>
           </div>
         </div>
         <div v-if="legacyInfo && legacyInfo.total > 0" class="st-row">

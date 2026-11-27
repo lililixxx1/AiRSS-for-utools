@@ -178,6 +178,13 @@ function copyLink() {
   }
 }
 
+const isLaterItem = computed(() => !!(item.value && (item.value.isLater || item.value.feedKey === "feed:__later__")));
+async function saveToLater() {
+  const link = item.value?.link;
+  if (!link || data.laterBusy) return;
+  await data.saveLater(link);
+}
+
 function onTagFilter(t: string) {
   data.filter = { kind: "tag", value: t };
   ui.cursor = 0;
@@ -269,6 +276,15 @@ const fontLabels = ["14", "16", "18", "22"];
       </button>
       <button class="btn btn-ghost btn-sm" :class="{ 'is-on': item.starred }" @click="data.toggleStar(item)">
         <I.bookmarkFilled v-if="item.starred" /><I.bookmark v-else />{{ item.starred ? "已收藏" : "收藏" }}
+      </button>
+      <button
+        v-if="!isLaterItem && item.link"
+        class="btn btn-ghost btn-sm"
+        :disabled="data.laterBusy"
+        title="保存原文到稍后读"
+        @click="saveToLater"
+      >
+        <I.clock />{{ data.laterBusy ? "存入中…" : "稍后读" }}
       </button>
       <div class="flex1"></div>
       <button class="btn btn-ghost btn-sm" @click="copyLink"><I.copy />复制链接</button>

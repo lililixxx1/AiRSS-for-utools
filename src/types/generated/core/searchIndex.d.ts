@@ -5,9 +5,20 @@
  */
 export function tokenize(text: any): any[];
 /**
- * 尝试从磁盘加载索引；失败或版本不符返回 false（由调用方决定重建）。
+ * 注册索引缺失/损坏时的全量重建回调（由 storage.init 一次性注入）
+ * @param {(() => void | Promise<void>) | null} fn
+ */
+export function setRebuildProvider(fn: (() => void | Promise<void>) | null): void;
+export function isReady(): boolean;
+/**
+ * 同步从磁盘加载索引（MiniSearch.loadJS 免二次编解码）；失败或版本不符返回 false。
  */
 export function loadFromDisk(): boolean;
+/**
+ * 惰性异步加载或自愈重建索引（分片让出主线程；带 epoch 防重置竞态）
+ * @returns {Promise<boolean>}
+ */
+export function ensureLoadedAsync(): Promise<boolean>;
 /**
  * 全量重建索引
  * @param {Array<any>} items

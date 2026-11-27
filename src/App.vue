@@ -325,7 +325,7 @@ onBeforeUnmount(() => {
           :class="ui.modal.danger ? 'btn-danger' : 'btn-primary'"
           @click="ui.modal && ui.modal.type === 'confirm' && (ui.modal.onOk(), (ui.modal = null))"
         >
-          确认{{ ui.modal.danger ? "删除" : "" }}
+          {{ ui.modal.okLabel || (ui.modal.danger ? "确认删除" : "确认") }}
         </button>
       </div>
     </div>
@@ -346,7 +346,7 @@ onBeforeUnmount(() => {
         class="prompt-field"
         @keydown.enter="submitPrompt"
       />
-      <input v-else class="input prompt-field" v-model="promptValue" @keydown.enter="submitPrompt" />
+      <input v-else class="input prompt-field" v-model="promptValue" :placeholder="ui.modal.placeholder" @keydown.enter="submitPrompt" />
       <div class="cf-foot">
         <button class="btn btn-ghost" @click="ui.modal = null">取消</button>
         <button class="btn btn-primary" :disabled="!promptValue.trim()" @click="submitPrompt">确定</button>

@@ -27,6 +27,13 @@ export function ingestFeed(feedDoc: any, parsedItems: any, feedMeta?: {}): Promi
     newCount: number;
     updatedCount: number;
     error: string;
+    healedCount?: undefined;
+} | {
+    ok: boolean;
+    newCount: number;
+    updatedCount: number;
+    healedCount: number;
+    error: any;
 }>;
 export function setRead(itemId: any, read: any): Promise<any>;
 export function setStarred(itemId: any, starred: any): Promise<any>;
@@ -65,7 +72,7 @@ export function rebuildSearchIndex(): Promise<{
         itemCount: number;
     };
 }>;
-/** 清理正文与提取全文缓存（保留元数据、用户状态与订阅） */
+/** 清理普通订阅正文与提取全文缓存（保留订阅、状态、已收藏正文与稍后读正文，并清空传输态） */
 export function clearBodyCache(): Promise<{
     diskBytes: number;
     diskMb: number;

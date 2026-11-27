@@ -4,10 +4,9 @@
  * 安全基线（PLAN §7）：preload 是唯一 HTML 生产方；渲染层 v-html 只信任本模块产物。
  */
 const { Buffer } = require("buffer");
-const sanitizeHtml = require("sanitize-html");
 
 /** 消毒白名单（标签/属性严格白名单，其余全剥） */
-const SANITIZE_OPTIONS = {
+const SANITIZE_BASE_OPTIONS = {
   allowedTags: ["p", "br", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "pre", "code", "img", "a", "table", "thead", "tbody", "tr", "td", "th", "strong", "em"],
   allowedAttributes: {
     img: ["src", "alt", "width", "height"],
@@ -16,13 +15,27 @@ const SANITIZE_OPTIONS = {
   // 只放行 http(s) 图与链接（协议相对 // 与 javascript: 一律剥）
   allowedSchemes: ["http", "https"],
   allowedSchemesByTag: { img: ["https"], a: ["http", "https"] },
-  transformTags: {
-    a: sanitizeHtml.simpleTransform("a", { rel: "noopener", target: "_blank" }),
-  },
   disallowedTagsMode: "discard",
   // 显式禁止（纵深防御，白名单本已排除）
   forbiddenTags: ["svg", "math", "form", "input", "iframe", "style", "link", "meta", "script"],
 };
+
+let sanitizeHtmlLib = null;
+let sanitizeOptionsCache = null;
+
+// 惰性初始化 sanitize-html 与 transformTags，避免冷启动首屏承受不必要的依赖解析开销
+function getSanitizer() {
+  if (!sanitizeHtmlLib) {
+    sanitizeHtmlLib = require("sanitize-html");
+    sanitizeOptionsCache = {
+      ...SANITIZE_BASE_OPTIONS,
+      transformTags: {
+        a: sanitizeHtmlLib.simpleTransform("a", { rel: "noopener", target: "_blank" }),
+      },
+    };
+  }
+  return { sanitizeHtml: sanitizeHtmlLib, sanitizeOptions: sanitizeOptionsCache };
+}
 
 const MAX_CONTENT_BYTES = 100 * 1024; // 正文分层上限：100KB UTF-8 字节
 
@@ -33,14 +46,15 @@ const MAX_CONTENT_BYTES = 100 * 1024; // 正文分层上限：100KB UTF-8 字节
  */
 function sanitizeContent(html) {
   if (!html) return "";
-  let clean = sanitizeHtml(String(html), SANITIZE_OPTIONS);
+  const { sanitizeHtml, sanitizeOptions } = getSanitizer();
+  let clean = sanitizeHtml(String(html), sanitizeOptions);
   if (Buffer.byteLength(clean, "utf8") > MAX_CONTENT_BYTES) {
     // 先按字符粗切到 ~99KB 字节，再消毒一次让标签闭合
     let cut = clean.length;
     while (cut > 0 && Buffer.byteLength(clean.slice(0, cut), "utf8") > MAX_CONTENT_BYTES - 512) {
       cut = Math.floor(cut / 2);
     }
-    clean = sanitizeHtml(clean.slice(0, cut) + "…", SANITIZE_OPTIONS);
+    clean = sanitizeHtml(clean.slice(0, cut) + "…", sanitizeOptions);
   }
   return clean;
 }
@@ -53,6 +67,7 @@ const NOISE_SYMBOL_RE = /[\u2190-\u21FF\u2300-\u23FF\u25A0-\u25FF\u2B00-\u2BFF\u
 const BLOCK_BREAK_RE = /<\/(?:p|div|section|article|li|ul|ol|h[1-6]|blockquote|pre|tr|td|th|table)\s*>|<br\s*\/?>/gi;
 function htmlToText(html) {
   if (!html) return "";
+  const { sanitizeHtml } = getSanitizer();
   return sanitizeHtml(String(html).replace(BLOCK_BREAK_RE, " "), { allowedTags: [], allowedAttributes: {} })
     .replace(NOISE_SYMBOL_RE, " ")
     .replace(/\s+/g, " ")
@@ -165,4 +180,4 @@ function readingMinutes(text) {
   return Math.max(1, Math.round(n / 400));
 }
 
-module.exports = { sanitizeContent, htmlToText, makeSummary, extractCover, readingMinutes, paragraphizePlainText, SANITIZE_OPTIONS, MAX_CONTENT_BYTES };
+module.exports = { sanitizeContent, htmlToText, makeSummary, extractCover, readingMinutes, paragraphizePlainText, SANITIZE_OPTIONS: SANITIZE_BASE_OPTIONS, MAX_CONTENT_BYTES };

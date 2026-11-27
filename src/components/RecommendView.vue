@@ -6,30 +6,24 @@ import { useDataStore } from "../stores/data";
 import { useSettingsStore } from "../stores/settings";
 import { useUiStore } from "../stores/ui";
 import { I } from "./icons";
-import { RECOMMEND_GROUPS, RECOMMEND_ALL, isSubscribed, feedUrlKey } from "../lib/recommend";
+import { RECOMMEND_GROUPS, RECOMMEND_ALL, isSubscribed, findSubscribedFeed, type RecommendSource } from "../lib/recommend";
 
 const data = useDataStore();
 const settings = useSettingsStore();
 const ui = useUiStore();
 
-const subscribedCount = computed(() => RECOMMEND_ALL.filter((s) => isSubscribed(s.url, data.feeds)).length);
+const subscribedCount = computed(() => RECOMMEND_ALL.filter((s) => isSubscribed(s, data.feeds)).length);
 
-function isDone(url: string): boolean {
-  return isSubscribed(url, data.feeds);
-}
-
-/** 已订阅时按归一 URL 找到对应 feed（点击该行 = 跳到它的文章列表，而不是再订一遍造重复源） */
-function feedByUrl(url: string) {
-  const key = feedUrlKey(url);
-  return data.feeds.find((f) => feedUrlKey(f.url || "") === key) || null;
+function isDone(s: RecommendSource): boolean {
+  return isSubscribed(s, data.feeds);
 }
 
 /**
  * 行点击：未订阅 → 开发现确认弹窗（补齐标题/分类/全文开关，与侧栏「+」同一条链路）；
  * 已订阅 → 回到列表并选中该源（重复订阅只会造出重复的 feed 文档，没有第二个用处）。
  */
-function activate(s: { url: string }) {
-  const feed = feedByUrl(s.url);
+function activate(s: RecommendSource) {
+  const feed = findSubscribedFeed(s, data.feeds);
   if (feed) {
     data.filter = { kind: "feed", value: feed._id };
     ui.cursor = 0;
@@ -61,19 +55,19 @@ function back() {
           v-for="s in g.items"
           :key="s.url"
           class="rec-item"
-          :class="{ done: isDone(s.url) }"
-          :aria-label="(isDone(s.url) ? '已订阅，跳到该源：' : '订阅：') + s.title"
+          :class="{ done: isDone(s) }"
+          :aria-label="(isDone(s) ? '已订阅，跳到该源：' : '订阅：') + s.title"
           @click="activate(s)"
         >
           <div class="rec-body">
             <div class="rec-line">
               <span class="rec-title ellipsis">{{ s.title }}</span>
-              <span v-if="isDone(s.url)" class="rec-done"><I.check />已订阅</span>
+              <span v-if="isDone(s)" class="rec-done"><I.check />已订阅</span>
             </div>
             <p class="rec-desc clamp-2">{{ s.desc }}</p>
             <span class="rec-host ellipsis">{{ s.url }}</span>
           </div>
-          <span class="rec-act" :class="{ done: isDone(s.url) }">{{ isDone(s.url) ? "查看" : "订阅" }}</span>
+          <span class="rec-act" :class="{ done: isDone(s) }">{{ isDone(s) ? "查看" : "订阅" }}</span>
         </button>
       </div>
 

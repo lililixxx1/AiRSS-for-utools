@@ -19,7 +19,10 @@ const DIST_PRELOAD = path.join(DIST, "preload");
 const SRC_PRELOAD = path.join(ROOT, "preload");
 const NM_SRC = path.join(SRC_PRELOAD, "node_modules");
 
-const JUNK_EXT = /\.map$/i;
+const JUNK_EXT = /\.(map|ts|mts|cts)$/i;
+const TEST_FILE = /\.(test|spec)\.[cm]?js$/i;
+const MD_FILE = /\.md$/i;
+const LICENSE_FILE = /^license(\.[^.]+)?$/i;
 const JUNK_NAMES = /^(\.ds_store|thumbs\.db)$/i;
 const JUNK_DIRS = new Set([
   "test",
@@ -32,7 +35,8 @@ const JUNK_DIRS = new Set([
 ]);
 
 function isJunk(base) {
-  return JUNK_EXT.test(base) || JUNK_NAMES.test(base);
+  if (LICENSE_FILE.test(base)) return false;
+  return JUNK_EXT.test(base) || TEST_FILE.test(base) || MD_FILE.test(base) || JUNK_NAMES.test(base);
 }
 
 function clearDir(dir) {
@@ -128,7 +132,11 @@ let totalBytes = 0;
     const st = fs.statSync(p);
     const nm = inNm || name === "node_modules";
     if (st.isDirectory()) {
-      walk(p, nm);
+      if (nm && JUNK_DIRS.has(name)) {
+        bad.push(path.relative(DIST, p));
+      } else {
+        walk(p, nm);
+      }
     } else {
       fileCount += 1;
       totalBytes += st.size;

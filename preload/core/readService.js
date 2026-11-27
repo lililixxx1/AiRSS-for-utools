@@ -68,26 +68,48 @@ function getUnreadTopSync(limit = 4) {
   };
 }
 
-/** 同步全文搜索（供 onMainPush over 模式调用） */
+/** 同步全文搜索（供 onMainPush over 模式调用；索引未加载时自动后台预热并先内存快搜兜底） */
 function searchForMainPushSync(query, limit = 5) {
   const searchIndex = require("./searchIndex.js");
   const { itemById, syncFeedMap } = storage._getInternals();
-  const res = searchIndex.search(query, { limit });
-  const out = [];
-  for (const id of res.ids) {
-    const entry = itemById.get(id);
-    if (!entry) continue;
-    const it = entry.item;
+  const q = String(query || "").trim();
+  if (!q) return [];
+  const cap = Number(limit) > 0 ? Number(limit) : 5;
+  const formatItem = (it) => {
     const f = it.feedKey ? syncFeedMap.get(it.feedKey) : null;
-    out.push({
+    return {
       _id: it._id,
       title: it.titleDisplay || it.title || "",
       feedTitle: (f && f.title) || it.feedTitle || "AiRSS",
       pubTs: it.pubTs || 0,
       relTime: relTimeShort(it.pubTs),
-    });
+    };
+  };
+
+  if (searchIndex.isReady()) {
+    const res = searchIndex.search(q, { limit: cap });
+    const out = [];
+    for (const id of res.ids) {
+      const entry = itemById.get(id);
+      if (entry) out.push(formatItem(entry.item));
+    }
+    return out;
   }
-  return out;
+
+  void searchIndex.ensureLoadedAsync();
+  const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) return [];
+  const matched = [];
+  for (const entry of itemById.values()) {
+    const it = entry.item;
+    const tags = Array.isArray(it.ai && it.ai.tags) ? it.ai.tags.join(" ") : "";
+    const hay = `${it.titleDisplay || ""}\n${it.title || ""}\n${it.summaryText || ""}\n${tags}`.toLowerCase();
+    if (terms.every((t) => hay.includes(t))) {
+      matched.push(it);
+    }
+  }
+  matched.sort((a, b) => (b.pubTs || 0) - (a.pubTs || 0));
+  return matched.slice(0, cap).map(formatItem);
 }
 
 module.exports = {

@@ -1,5 +1,24 @@
 import events = require("./core/events.js");
-import articleSvc = require("./services/article.js");
+/**
+ * 渲染层边界消毒封装：防止未消毒的 contentHtml 直接写入本地正文并进入 v-html
+ * （内部 scheduler.js 仍直调 storage.ingestFeed，不重复消毒）
+ * @param {any} feedDoc
+ * @param {any[]} parsedItems
+ * @param {any} [feedMeta]
+ */
+declare function ingestFeedSafe(feedDoc: any, parsedItems: any[], feedMeta?: any): Promise<{
+    ok: boolean;
+    newCount: number;
+    updatedCount: number;
+    error: string;
+    healedCount?: undefined;
+} | {
+    ok: boolean;
+    newCount: number;
+    updatedCount: number;
+    healedCount: number;
+    error: any;
+}>;
 import opmlSvc = require("./services/opml.js");
 import refreshService = require("./core/refreshService.js");
 import lifecycleMgr = require("./lifecycle.js");
@@ -37,28 +56,28 @@ declare function createFeed({ url, title, category, fullText, refreshMin, siteUr
 }>;
 export let on: typeof events.on;
 export namespace db {
-    let getFeeds: typeof import("./core/storage.js").getFeeds;
-    let saveFeed: typeof import("./core/storage.js").saveFeed;
-    let snapshotItems: typeof import("./core/storage.js").snapshotItems;
-    let itemsOfFeed: typeof import("./core/storage.js").itemsOfFeed;
-    let ingestFeed: typeof import("./core/storage.js").ingestFeed;
-    let setRead: typeof import("./core/storage.js").setRead;
-    let setStarred: typeof import("./core/storage.js").setStarred;
-    let setReadPos: typeof import("./core/storage.js").setReadPos;
-    let getReadPos: typeof import("./core/storage.js").getReadPos;
-    let markManyRead: typeof import("./core/storage.js").markManyRead;
-    let recalcUnread: typeof import("./core/storage.js").recalcUnread;
-    let getItemFull: typeof import("./core/storage.js").getItemFull;
-    let getItemDetail: typeof import("./core/storage.js").getItemDetail;
-    let retentionClean: typeof import("./core/storage.js").retentionClean;
-    let deleteFeedCascade: typeof import("./core/storage.js").deleteFeedCascade;
-    let clearAll: typeof import("./core/storage.js").clearAll;
-    let searchContent: typeof import("./core/storage.js").searchContent;
-    let rebuildSearchIndex: typeof import("./core/storage.js").rebuildSearchIndex;
-    let clearBodyCache: typeof import("./core/storage.js").clearBodyCache;
-    let getLocalStats: typeof import("./core/storage.js").getLocalStats;
-    let detectLegacy: typeof import("./core/migrate.js").detectLegacy;
-    let cleanLegacySyncDocs: typeof import("./core/migrate.js").cleanLegacySyncDocs;
+    export let getFeeds: typeof import("./core/storage.js").getFeeds;
+    export let saveFeed: typeof import("./core/storage.js").saveFeed;
+    export let snapshotItems: typeof import("./core/storage.js").snapshotItems;
+    export let itemsOfFeed: typeof import("./core/storage.js").itemsOfFeed;
+    export { ingestFeedSafe as ingestFeed };
+    export let setRead: typeof import("./core/storage.js").setRead;
+    export let setStarred: typeof import("./core/storage.js").setStarred;
+    export let setReadPos: typeof import("./core/storage.js").setReadPos;
+    export let getReadPos: typeof import("./core/storage.js").getReadPos;
+    export let markManyRead: typeof import("./core/storage.js").markManyRead;
+    export let recalcUnread: typeof import("./core/storage.js").recalcUnread;
+    export let getItemFull: typeof import("./core/storage.js").getItemFull;
+    export let getItemDetail: typeof import("./core/storage.js").getItemDetail;
+    export let retentionClean: typeof import("./core/storage.js").retentionClean;
+    export let deleteFeedCascade: typeof import("./core/storage.js").deleteFeedCascade;
+    export let clearAll: typeof import("./core/storage.js").clearAll;
+    export let searchContent: typeof import("./core/storage.js").searchContent;
+    export let rebuildSearchIndex: typeof import("./core/storage.js").rebuildSearchIndex;
+    export let clearBodyCache: typeof import("./core/storage.js").clearBodyCache;
+    export let getLocalStats: typeof import("./core/storage.js").getLocalStats;
+    export let detectLegacy: typeof import("./core/migrate.js").detectLegacy;
+    export let cleanLegacySyncDocs: typeof import("./core/migrate.js").cleanLegacySyncDocs;
 }
 export namespace feed {
     let discover: (inputUrl: any) => Promise<{
@@ -82,7 +101,7 @@ export namespace feed {
     let normalizeUrl: (input: any) => string;
 }
 export namespace article {
-    let readingMinutes: typeof articleSvc.readingMinutes;
+    let readingMinutes: (text: any) => number;
     let ensureFull: (itemId: string) => Promise<{
         status: "off" | "hit" | "rich" | "fetched" | "error";
         content: string | null;

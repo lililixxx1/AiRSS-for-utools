@@ -28,7 +28,7 @@ export function getUnreadTopSync(limit?: number): {
         relTime: string;
     }[];
 };
-/** 同步全文搜索（供 onMainPush over 模式调用） */
+/** 同步全文搜索（供 onMainPush over 模式调用；索引未加载时自动后台预热并先内存快搜兜底） */
 export function searchForMainPushSync(query: any, limit?: number): {
     _id: any;
     title: any;

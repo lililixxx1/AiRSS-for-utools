@@ -172,6 +172,10 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
         `<p>via Indie Radar · <a href="${RADAR_SELF}">${RADAR_SELF}</a></p>`;
       const cleanedRadar = adapters.applyFeedAdapter("https://radar.everythingisok.top/feed.xml", { rawBody: RADAR_BODY, link: RADAR_SELF });
       ok("radar：自引用 via 尾巴被剥、阅读原文保留", !cleanedRadar.includes("via Indie Radar") && cleanedRadar.includes("阅读原文") && cleanedRadar.includes("一条精选摘要"));
+      const RADAR_NEW_SELF = "https://indieradar.cc/items/abc";
+      const RADAR_NEW_BODY = `<p>新域名精选。</p><p>via Indie Radar · <a href="${RADAR_NEW_SELF}">${RADAR_NEW_SELF}</a></p>`;
+      const cleanedRadarNew = adapters.applyFeedAdapter("https://indieradar.cc/feed.xml", { rawBody: RADAR_NEW_BODY, link: RADAR_NEW_SELF });
+      ok("radar(indieradar.cc)：新域名 feed 适配命中并剥 via", !!cleanedRadarNew && !cleanedRadarNew.includes("via Indie Radar") && cleanedRadarNew.includes("新域名精选"));
       ok("radar：非本条目链接的 via 行不动", adapters.applyFeedAdapter("https://radar.everythingisok.top/feed.xml", { rawBody: RADAR_BODY, link: "https://radar.everythingisok.top/items/other" }) === null);
       ok("radar：其它站 feed 不命中", adapters.applyFeedAdapter("https://hellogithub.com/rss", { rawBody: RADAR_BODY, link: RADAR_SELF }) === null);
 
@@ -222,6 +226,8 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
         </article></body></html>`;
       const radar = adapters.extractArticle("https://radar.everythingisok.top/items/x", parseHTML(RADAR_HTML).document);
       ok("radar：适配命中", !!radar && radar.adapter === "indie-radar");
+      const radarNew = adapters.extractArticle("https://indieradar.cc/items/x", parseHTML(RADAR_HTML).document);
+      ok("radar(indieradar.cc)：新域名文章适配命中", !!radarNew && radarNew.adapter === "indie-radar" && radarNew.content.includes("<h2>AI 导读</h2>"));
       ok("radar：摘录进正文、标题不进正文", radar.content.includes("跨平台构建工具") && !radar.content.includes("某项目的标题"));
       ok("radar：导读/推荐理由成 h2 栏目", radar.content.includes("<h2>AI 导读</h2>") && radar.content.includes("<h2>推荐理由</h2>"));
       ok("radar：来源链接保留", radar.content.includes('<a href="https://www.v2ex.com/t/1">V2EX · 创造节点</a>'));

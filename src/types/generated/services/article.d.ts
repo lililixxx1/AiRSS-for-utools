@@ -36,7 +36,7 @@ export function readingMinutes(text: any): number;
  * @returns {string} 段落化后的 HTML 或原值
  */
 export function paragraphizePlainText(text: string): string;
-export namespace SANITIZE_OPTIONS {
+declare namespace SANITIZE_BASE_OPTIONS {
     let allowedTags: string[];
     namespace allowedAttributes {
         let img: string[];
@@ -49,11 +49,8 @@ export namespace SANITIZE_OPTIONS {
         let a_1: string[];
         export { a_1 as a };
     }
-    namespace transformTags {
-        let a_2: any;
-        export { a_2 as a };
-    }
     let disallowedTagsMode: string;
     let forbiddenTags: string[];
 }
 export const MAX_CONTENT_BYTES: number;
+export { SANITIZE_BASE_OPTIONS as SANITIZE_OPTIONS };

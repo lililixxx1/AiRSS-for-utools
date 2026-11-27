@@ -118,7 +118,7 @@ export function installMock() {
         return load().items.filter((x) => x.feedKey === feedId);
       },
       async ingestFeed() {
-        return { ok: true, newCount: 0, updatedCount: 0, error: "" };
+        return { ok: true, newCount: 0, updatedCount: 0, healedCount: 0, error: "" };
       },
       async setRead(id: string, read: boolean) {
         const d = load();

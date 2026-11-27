@@ -4,9 +4,9 @@ export type ViewName = "main" | "reader" | "settings" | "recommend";
 export type ModalState =
   | null
   | { type: "addFeed"; presetUrl?: string }
-  | { type: "confirm"; title: string; body: string; danger?: boolean; onOk: () => void }
+  | { type: "confirm"; title: string; body: string; danger?: boolean; okLabel?: string; onOk: () => void }
   /** 通用输入弹窗（PLAN-V1.3 D1：分类重命名/合并）；有 suggestions 用 ComboboxInput（C17） */
-  | { type: "prompt"; title: string; label?: string; initial?: string; suggestions?: string[]; onOk: (v: string) => void };
+  | { type: "prompt"; title: string; label?: string; initial?: string; placeholder?: string; suggestions?: string[]; onOk: (v: string) => void };
 
 export interface Toast {
   id: number;

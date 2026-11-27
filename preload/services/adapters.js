@@ -67,6 +67,11 @@ function hostIs(host, domain) {
   return host === domain || host.endsWith("." + domain);
 }
 
+/** Indie Radar 已由 radar.everythingisok.top 迁移至 indieradar.cc，新旧域名统一兼容 */
+function isIndieRadarHost(host) {
+  return hostIs(host, "indieradar.cc") || hostIs(host, "radar.everythingisok.top");
+}
+
 // ─────────────────────────────── feed 级 ───────────────────────────────
 
 /**
@@ -101,7 +106,7 @@ const FEED_ADAPTERS = [
   },
   {
     id: "indie-radar",
-    test: (feedUrl) => hostIs(hostOf(feedUrl), "radar.everythingisok.top"),
+    test: (feedUrl) => isIndieRadarHost(hostOf(feedUrl)),
     clean: cleanIndieRadar,
   },
 ];
@@ -278,7 +283,7 @@ const ARTICLE_ADAPTERS = [
   },
   {
     id: "indie-radar-item",
-    test: (url) => hostIs(hostOf(url), "radar.everythingisok.top") && /^\/items\//.test(pathOf(url)),
+    test: (url) => isIndieRadarHost(hostOf(url)) && /^\/items\//.test(pathOf(url)),
     extract: extractIndieRadar,
   },
 ];

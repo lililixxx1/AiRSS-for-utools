@@ -183,13 +183,25 @@ function writeAiSidecar(itemKey, patch) {
 function resolveItemKey(item) {
   if (!item) return "";
   if (item.itemKey) return item.itemKey;
-  if (typeof item._id === "string") {
+  const isVirtualId =
+    item.feedKey === "feed:__later__" ||
+    item.fromLaterSnap ||
+    item.fromStarSnap ||
+    (typeof item._id === "string" &&
+      (item._id.startsWith("item:feed:__later__:") || item._id.startsWith("item:feed:__star_fallback__:")));
+  if (isVirtualId && typeof item._id === "string") {
     const parts = item._id.split(":");
     if (parts.length >= 3) return parts[parts.length - 1];
   }
   const f = item.feedKey ? syncFeedMap.get(item.feedKey) : null;
   const urlKey = (f && f.urlKey) || (f && f.url ? feedUrlKey(f.url) : "") || item.feedKey || "";
-  return computeItemKey(urlKey, item.guid, item.link, item.title);
+  const computed = computeItemKey(urlKey, item.guid, item.link, item.title);
+  if (computed) return computed;
+  if (typeof item._id === "string") {
+    const parts = item._id.split(":");
+    if (parts.length >= 3) return parts[parts.length - 1];
+  }
+  return "";
 }
 
 function overlayItemState(raw) {
@@ -383,14 +395,11 @@ async function init(force = false) {
 
     rebuildItemIndexes();
 
-    // 索引加载或自愈重建
-    const loadedIdx = searchIndex.loadFromDisk();
-    if (!loadedIdx) {
+    // 惰性索引：冷启动不阻塞加载，首次检索/写入或损坏自愈时异步加载或重建
+    searchIndex.setRebuildProvider(() => {
       const allItems = [...itemById.values()].map((e) => e.item);
-      if (allItems.length) {
-        searchIndex.rebuildAll(allItems, (it) => readBodyTextBest(it));
-      }
-    }
+      searchIndex.rebuildAll(allItems, (it) => readBodyTextBest(it));
+    });
 
     initialized = true;
   })();
@@ -614,6 +623,7 @@ async function saveItemFullx(itemId, clean, cover, src) {
     const arr = shardMap.get(feedId) || [];
     writeShardSync(feedId, arr);
   }
+  await searchIndex.ensureLoadedAsync();
   searchIndex.upsert(item, clean);
   return true;
 }
@@ -658,6 +668,7 @@ async function saveItemAi(itemId, patch) {
     const arr = shardMap.get(feedId) || [];
     writeShardSync(feedId, arr);
     if (patch.ai !== undefined || patch.titleDisplay !== undefined) {
+      await searchIndex.ensureLoadedAsync();
       searchIndex.upsert(item, readBodyTextBest(item));
     }
     events.emit("items-changed", { kind: "ai-updated", itemIds: [item._id], items: [plainClone(item)] });
@@ -684,7 +695,9 @@ async function ingestFeed(feedDoc, parsedItems, feedMeta = {}) {
 
   let newCount = 0;
   let updatedCount = 0;
+  let healedCount = 0;
   const touchedItems = [];
+  const healedItems = [];
 
   for (const it of parsedItems || []) {
     const stable = it.guid || it.link || it.title || "";
@@ -695,6 +708,13 @@ async function ingestFeed(feedDoc, parsedItems, feedMeta = {}) {
     const existing = byId.get(_id);
 
     if (existing && existing.title === it.title && existing.contentHash === it.contentHash) {
+      // 独立正文自愈早退分支：仅补写缺失正文与索引，绝不抹除 titleDisplay / ai / 侧载 / state
+      const key = existing.itemKey || itemKey;
+      if (key && it.contentHtml && !fs.existsSync(localPaths().bodyFile(feedId, key))) {
+        gzipWriteSync(localPaths().bodyFile(feedId, key), it.contentHtml);
+        healedItems.push({ item: existing, body: it.contentHtml });
+        healedCount += 1;
+      }
       continue;
     }
 
@@ -753,9 +773,18 @@ async function ingestFeed(feedDoc, parsedItems, feedMeta = {}) {
     shardMap.set(feedId, nextArr);
     writeShardSync(feedId, nextArr);
     rebuildItemIndexes();
+  }
+  if (touchedItems.length || healedItems.length) {
+    await searchIndex.ensureLoadedAsync();
     for (const t of touchedItems) {
       searchIndex.upsert(itemById.get(t.item._id)?.item || t.item, t.body);
     }
+    for (const h of healedItems) {
+      searchIndex.upsert(itemById.get(h.item._id)?.item || h.item, h.body);
+    }
+  }
+  if (healedCount > 0) {
+    logger.info("ingest.heal", "正文缺失已自动补回", { feedId, healed: healedCount });
   }
 
   // 本地传输态推进
@@ -802,7 +831,7 @@ async function ingestFeed(feedDoc, parsedItems, feedMeta = {}) {
   if (newCount > 0 || updatedCount > 0) {
     events.emit("items-changed", { kind: "ingest", feedId, newCount, updatedCount });
   }
-  return { ok: true, newCount, updatedCount, error: null };
+  return { ok: true, newCount, updatedCount, healedCount, error: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -1000,6 +1029,7 @@ async function retentionClean(feedDoc, keep) {
   shardMap.set(feedId, nextArr);
   writeShardSync(feedId, nextArr);
   rebuildItemIndexes();
+  await searchIndex.ensureLoadedAsync();
   searchIndex.removeMany([...doomedIds]);
 
   // 顺带裁剪超过 180 天且已不在本地分片中的非星标 state:*
@@ -1063,6 +1093,7 @@ async function deleteFeedCascade(feedDoc) {
   if (syncDoomed.length) await bulkDeleteSyncDocs(syncDoomed);
 
   rebuildItemIndexes();
+  await searchIndex.ensureLoadedAsync();
   searchIndex.removeMany(removedIds);
   events.emit("feeds-changed", { kind: "deleted", feedId });
   events.emit("items-changed", { kind: "feed-deleted", feedId });
@@ -1096,6 +1127,9 @@ async function saveLaterArticle({ url, title, author, link, contentHtml, summary
   const _id = "item:" + feedId + ":" + itemKey;
   const arr = shardMap.get(feedId) ? [...shardMap.get(feedId)] : [];
   const idx = arr.findIndex((x) => x._id === _id);
+  const prev = idx >= 0 ? arr[idx] : null;
+  const nextHash = contentHash || sha12(contentHtml || title || url);
+  const sameHash = !!(prev && prev.contentHash && prev.contentHash === nextHash);
 
   const itemDoc = {
     _id,
@@ -1104,16 +1138,22 @@ async function saveLaterArticle({ url, title, author, link, contentHtml, summary
     guid: url,
     link: link || url,
     title: title || url,
-    titleDisplay: title || url,
-    author: author || "",
-    pubTs: now,
+    titleDisplay: sameHash && prev.titleDisplay ? prev.titleDisplay : (title || url),
+    author: author || (prev && prev.author) || "",
+    pubTs: (prev && prev.pubTs) || now,
     fetchedAt: now,
-    contentHash: contentHash || sha12(contentHtml || title || url),
-    summaryText: summaryText || "",
-    cover: cover || null,
-    aiStatus: "none",
+    contentHash: nextHash,
+    summaryText: summaryText || (sameHash && prev.summaryText) || "",
+    cover: cover || (prev && prev.cover) || null,
+    aiStatus: sameHash ? (prev.aiStatus || "none") : "none",
+    ...(sameHash && prev.ai ? { ai: prev.ai } : {}),
+    ...(sameHash && prev.hasAiTrans ? { hasAiTrans: true } : {}),
+    ...(sameHash && prev.hasAiToc ? { hasAiToc: true } : {}),
     isLater: true,
   };
+  if (prev && !sameHash && (prev.hasAiTrans || prev.hasAiToc)) {
+    writeAiSidecar(itemKey, { aiTrans: undefined, aiToc: undefined });
+  }
   if (contentHtml) gzipWriteSync(localPaths().bodyFile(feedId, itemKey), contentHtml);
 
   if (idx >= 0) arr[idx] = itemDoc;
@@ -1128,7 +1168,7 @@ async function saveLaterArticle({ url, title, author, link, contentHtml, summary
     link: link || url,
     title: itemDoc.title,
     author: itemDoc.author,
-    pubTs: now,
+    pubTs: itemDoc.pubTs,
     summaryText: String(itemDoc.summaryText || "").slice(0, 400),
     cover: itemDoc.cover,
     savedAt: now,
@@ -1137,6 +1177,7 @@ async function saveLaterArticle({ url, title, author, link, contentHtml, summary
   if (savedLater) laterMap.set(itemKey, savedLater);
 
   rebuildItemIndexes();
+  await searchIndex.ensureLoadedAsync();
   searchIndex.upsert(itemById.get(_id)?.item || itemDoc, contentHtml || "");
   events.emit("feeds-changed", { kind: "later" });
   events.emit("items-changed", { kind: "later", itemIds: [_id] });
@@ -1231,15 +1272,99 @@ async function rebuildSearchIndex() {
   return { count, stats: getLocalStats() };
 }
 
-/** 清理正文与提取全文缓存（保留元数据、用户状态与订阅） */
+/** 清理普通订阅正文与提取全文缓存（保留订阅、状态、已收藏正文与稍后读正文，并清空传输态） */
 async function clearBodyCache() {
   await ensureInit();
   const p = localPaths();
+  const keepBodyFiles = new Set();
+
+  for (const [feedId, arr] of shardMap.entries()) {
+    if (feedId === "feed:__later__") {
+      // 稍后读无自动刷新渠道，正文目录整源豁免保护
+      const laterDir = path.join(p.bodiesDir, feedHash(feedId));
+      try {
+        if (fs.existsSync(laterDir)) {
+          for (const name of fs.readdirSync(laterDir)) {
+            keepBodyFiles.add(path.resolve(laterDir, name));
+          }
+        }
+      } catch (_) { /* ignore */ }
+      continue;
+    }
+
+    let shardTouched = false;
+    for (const item of arr || []) {
+      const key = resolveItemKey(item);
+      if (!key) continue;
+      const st = stateMap.get(key);
+      const isStarred = !!(st ? st.starred : item.starred);
+      const bf = p.bodyFile(feedId, key);
+      const xf = p.fullxFile(feedId, key);
+
+      if (isStarred) {
+        keepBodyFiles.add(path.resolve(bf));
+        keepBodyFiles.add(path.resolve(xf));
+        continue;
+      }
+
+      unlinkSafe(bf);
+      unlinkSafe(xf);
+      const sidecar = readAiSidecar(key);
+      if (sidecar.aiTrans || sidecar.aiToc) {
+        writeAiSidecar(key, { aiTrans: undefined, aiToc: undefined });
+      }
+      if (item.hasAiTrans) {
+        item.hasAiTrans = false;
+        shardTouched = true;
+      }
+      if (item.hasAiToc) {
+        item.hasAiToc = false;
+        shardTouched = true;
+      }
+    }
+    if (shardTouched) {
+      writeShardSync(feedId, arr);
+    }
+  }
+
   try {
-    fs.rmSync(p.bodiesDir, { recursive: true, force: true });
-    ensureDir(p.bodiesDir);
+    if (fs.existsSync(p.bodiesDir)) {
+      for (const dirName of fs.readdirSync(p.bodiesDir)) {
+        if (dirName === "__later__") continue;
+        const subDir = path.join(p.bodiesDir, dirName);
+        let stDir;
+        try { stDir = fs.statSync(subDir); } catch (_) { continue; }
+        if (stDir.isDirectory()) {
+          for (const fileName of fs.readdirSync(subDir)) {
+            const full = path.resolve(subDir, fileName);
+            if (!keepBodyFiles.has(full)) unlinkSafe(full);
+          }
+          try {
+            if (fs.readdirSync(subDir).length === 0) fs.rmdirSync(subDir);
+          } catch (_) { /* ignore */ }
+        } else {
+          unlinkSafe(subDir);
+        }
+      }
+    }
   } catch (_) { /* ignore */ }
+
+  // 同步清空所有非稍后读源的传输态，解开「refreshMin 未到期」与「304 空入库」两道门
+  const allFeedIds = new Set([...syncFeedMap.keys(), ...Object.keys(feedStateMap)]);
+  for (const feedId of allFeedIds) {
+    if (feedId === "feed:__later__") continue;
+    feedStateMap[feedId] = {
+      ...(feedStateMap[feedId] || {}),
+      etag: "",
+      lastModified: "",
+      lastFetchedAt: null,
+    };
+  }
+  saveFeedStateNow();
+
+  rebuildItemIndexes();
   await rebuildSearchIndex();
+  events.emit("feeds-changed", { kind: "clear-cache" });
   return getLocalStats();
 }
 
@@ -1266,11 +1391,12 @@ function walkBytes(dir) {
 
 function getLocalStats() {
   const { bytes, files } = walkBytes(getLocalRoot());
+  const indexExists = fs.existsSync(path.join(getLocalRoot(), "search", "minisearch.json"));
   return {
     diskBytes: bytes,
     diskMb: Math.round((bytes / (1024 * 1024)) * 100) / 100,
     files,
-    indexedDocs: searchIndex.documentCount(),
+    indexedDocs: searchIndex.isReady() ? searchIndex.documentCount() : (indexExists ? itemById.size : 0),
     itemCount: itemById.size,
   };
 }
@@ -1288,6 +1414,7 @@ function flush() {
  */
 async function searchContent(query, opts = {}) {
   await ensureInit();
+  await searchIndex.ensureLoadedAsync();
   return searchIndex.search(query, opts);
 }
 

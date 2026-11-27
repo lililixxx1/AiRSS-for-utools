@@ -1,14 +1,22 @@
 <script setup lang="ts">
+import { ref } from "vue";
 import { useDataStore } from "../stores/data";
 import { useSettingsStore } from "../stores/settings";
 import { useUiStore } from "../stores/ui";
 import { I } from "./icons";
 import { RECOMMEND_CHIPS, RECOMMEND_ALL } from "../lib/recommend";
 
-const props = defineProps<{ kind: "first-run" | "no-result" | "all-empty" | "category-empty" | "all-read" | "muted-empty"; query?: string; category?: string }>();
+const props = defineProps<{ kind: "first-run" | "no-result" | "all-empty" | "category-empty" | "all-read" | "muted-empty" | "later-empty"; query?: string; category?: string }>();
 const data = useDataStore();
 const settings = useSettingsStore();
 const ui = useUiStore();
+
+const laterUrl = ref("");
+async function submitLater() {
+  if (data.laterBusy) return;
+  const ok = await data.saveLater(laterUrl.value);
+  if (ok) laterUrl.value = "";
+}
 
 /** 首用引导只铺前 4 个芯片（C14），全量清单在「推荐订阅」页——13 个芯片会把空态撑爆 */
 const chips = RECOMMEND_CHIPS;
@@ -65,6 +73,26 @@ async function addRecommended(r: { url: string }) {
       <h3 class="empty-title">{{ category }}还没有文章</h3>
       <p class="empty-sub">切换到全部，或检查订阅源是否正常同步</p>
       <button class="btn btn-ghost" @click="data.filter = { kind: 'all' }">查看全部文章</button>
+    </template>
+
+    <!-- 稍后读为空 -->
+    <template v-else-if="kind === 'later-empty'">
+      <div class="hero-circle small"><I.clock /></div>
+      <h3 class="empty-title">稍后读还是空的</h3>
+      <p class="empty-sub">粘贴任意网页链接立即抓取正文保存；也可在 uTools 主搜索框或超级面板选中网址触发「存入稍后读」</p>
+      <div class="url-row">
+        <input
+          class="input"
+          v-model="laterUrl"
+          placeholder="https://example.com/article"
+          aria-label="稍后读网页链接"
+          :disabled="data.laterBusy"
+          @keydown.enter="submitLater"
+        />
+        <button class="btn btn-primary" :disabled="data.laterBusy || !laterUrl.trim()" @click="submitLater">
+          <I.plus />{{ data.laterBusy ? "存入中…" : "存入" }}
+        </button>
+      </div>
     </template>
 
     <!-- 当前列表全被静音（PLAN-V1.3 B：不让空态谎称"全部读完"）-->

@@ -12,12 +12,20 @@ const { sanitizeContent, makeSummary, extractCover, htmlToText, paragraphizePlai
 const adapters = require("./adapters.js");
 const crypto = require("crypto");
 const iconv = require("iconv-lite");
-const Parser = require("rss-parser").Parser || require("rss-parser");
 
-const parser = new Parser({
-  // RSS2.0 全文常在 content:encoded；v3 需要 customFields 映射
-  customFields: { item: [["content:encoded", "contentEncoded"], ["encoded", "encodedAlt"]] },
-});
+// 惰性初始化 rss-parser：冷启动只展示列表时无需在 preload 顶层付出解析库装载耗时
+let parserInstance = null;
+function getParser() {
+  if (!parserInstance) {
+    const ParserMod = require("rss-parser");
+    const Parser = ParserMod.Parser || ParserMod;
+    parserInstance = new Parser({
+      // RSS2.0 全文常在 content:encoded；v3 需要 customFields 映射
+      customFields: { item: [["content:encoded", "contentEncoded"], ["encoded", "encodedAlt"]] },
+    });
+  }
+  return parserInstance;
+}
 
 const COMMON_PATHS = ["/feed", "/rss", "/atom.xml", "/feed.xml", "/index.xml", "/rss.xml"];
 // 发现期探测预算：路径候选 5s；声明源保留 8s（慢源兼容），但只给 300ms 优先窗口——
@@ -125,7 +133,7 @@ function decodeBuffer(buf, contentType) {
  * @returns {{meta:{title,siteUrl,desc}, items:Array}}
  */
 async function parseFeedXml(xml, feedUrl = "") {
-  const parsed = await parser.parseString(xml);
+  const parsed = await getParser().parseString(xml);
   const now = Date.now();
   const items = [];
   // 逐条处理 + 每 5 条让出主线程：sanitize-html 对大正文是 CPU 尖峰，
@@ -190,7 +198,7 @@ async function fetchFeed(feedUrl, cond = {}) {
   // T-11/安全基线：不入日志、不进渲染层（公开入口走 fetchFeedPublic 剥离）
   if (!looksLikeFeedXml(xml)) return { status: "error", error: "NOT_FEED_XML", html: xml, finalUrl: res.url };
   try {
-    const { meta, items } = await parseFeedXml(xml, feedUrl);
+    const { meta, items } = await parseFeedXml(xml, res.url || feedUrl);
     return {
       status: "ok",
       meta,

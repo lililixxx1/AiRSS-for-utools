@@ -73,19 +73,31 @@ const sortLabel = computed(() => SORTS.find((s) => s.key === settings.orderBy)?.
 /** 分离窗列表列 260–400px（窄幅自适应，App.vue .sb-auto）：工具栏降为图标态（文字进 title/aria-label），防挤压折行 */
 const compact = computed(() => ui.detached);
 
-/** 空态判定（muted-empty 先于 all-read：静音清空视图时不得谎称"全部读完"） */
-const emptyKind = computed<null | "first-run" | "no-result" | "all-empty" | "category-empty" | "all-read" | "muted-empty" | null>(() => {
+/** 空态判定（muted-empty 先于 all-read：静音清空视图时不得谎称"全部读完"；稍后读优先于 first-run） */
+const emptyKind = computed<null | "first-run" | "no-result" | "all-empty" | "category-empty" | "all-read" | "muted-empty" | "later-empty">(() => {
   if (!data.loaded) return null;
   if (items.value.length) return null;
-  if (!data.feeds.length) return "first-run";
   if (data.search.trim()) return "no-result";
   if (data.mutedInView > 0) return "muted-empty";
+  if (data.filter.kind === "later") return "later-empty";
+  if (!data.feeds.length) return "first-run";
   if (data.filter.kind === "unread") return "all-read";
   if (data.filter.kind === "all") return "all-empty";
   if (data.filter.kind === "category") return "category-empty";
   if (data.filter.kind === "starred") return "category-empty";
   return "category-empty";
 });
+
+function openSaveLaterPrompt() {
+  if (data.laterBusy) return;
+  ui.modal = {
+    type: "prompt",
+    title: "存入稍后读",
+    label: "粘贴网页链接（http/https），将自动抓取正文保存",
+    placeholder: "https://example.com/article",
+    onOk: (v) => void data.saveLater(v),
+  };
+}
 </script>
 
 <template>
@@ -106,6 +118,16 @@ const emptyKind = computed<null | "first-run" | "no-result" | "all-empty" | "cat
           @click="data.markAllRead()"
         >
           <I.doneAll /><span v-show="!compact">全部已读</span>
+        </button>
+        <button
+          v-if="data.filter.kind === 'later'"
+          class="btn btn-ghost btn-sm"
+          :disabled="data.laterBusy"
+          :aria-label="compact ? '存网页到稍后读' : undefined"
+          :title="compact ? '存网页到稍后读' : '粘贴网页链接存入稍后读'"
+          @click="openSaveLaterPrompt"
+        >
+          <I.plus /><span v-show="!compact">{{ data.laterBusy ? "存入中…" : "存网页" }}</span>
         </button>
         <span class="tb-progress num" v-if="data.refreshing && data.progress.total">{{ data.progress.done }}/{{ data.progress.total }}</span>
       </div>
